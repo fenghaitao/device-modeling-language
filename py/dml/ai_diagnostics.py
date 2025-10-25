@@ -94,7 +94,7 @@ class AIDiagnostic:
             return ErrorCategory.UNDEFINED_SYMBOL
         
         # Duplicate definitions
-        if any(x in tag for x in ['EDUP', 'EREDEF', 'EAMBIG']):
+        if any(x in tag for x in ['EDUP', 'EREDEF', 'EAMBIG', 'ENAMECOLL']):
             return ErrorCategory.DUPLICATE_DEFINITION
         
         # Import errors
@@ -140,10 +140,38 @@ class AIDiagnostic:
         tag = self.tag
         suggestions = []
         
+        # Debug: print tag to stderr
+        import sys
+        sys.stderr.write(f"DEBUG: Generating fix suggestions for tag: {tag}\n")
+        
+        # Name collision
+        if tag == 'ENAMECOLL':
+            suggestions.append("Rename one of the conflicting definitions to use a unique name")
+            suggestions.append("Check if you intended to override a method instead of creating a duplicate")
+            suggestions.append("If overriding is intended, ensure the original definition is in a parent template")
+        
         # Template ambiguity
-        if tag == 'EAMBINH':
+        elif tag == 'EAMBINH':
             suggestions.append("Add an 'is <template>' statement to specify template precedence")
             suggestions.append("Check template inheritance order in the object hierarchy")
+        
+        # Missing 'is' template for method override
+        elif tag == 'WNOIS':
+            # Extract method name from message if possible
+            if self.message and 'implementation of' in self.message:
+                # Message format: "implementation of X() without 'is X' is ignored by the standard library"
+                import re
+                match = re.search(r"implementation of (\w+)\(\)", self.message)
+                if match:
+                    method_name = match.group(1)
+                    suggestions.append(f"Add 'is {method_name};' statement to the containing object to enable the {method_name}() method override")
+            suggestions.append("Standard library method overrides require instantiating the corresponding template")
+            suggestions.append("Use 'is <method_name>;' in the object definition to activate the method")
+        
+        # Missing short description
+        elif tag == 'WNSHORTDESC':
+            suggestions.append("Add a 'desc' parameter to the device with a short description string")
+            suggestions.append("Example: param desc = \"Brief description of this device\";")
         
         # Undefined symbol
         elif 'EUNDEF' in tag or 'ENOSYM' in tag:
@@ -162,15 +190,21 @@ class AIDiagnostic:
             suggestions.append("Review import chain to break circular dependency")
             suggestions.append("Consider refactoring shared code into a separate file")
         
-        # Duplicate definition
+        # Duplicate definition (generic)
         elif 'EDUP' in tag or 'EREDEF' in tag:
             suggestions.append("Remove or rename one of the duplicate definitions")
             suggestions.append("Check if definitions are unintentionally duplicated across templates")
         
         # Syntax errors
         elif 'SYNTAX' in tag:
-            suggestions.append("Check for missing semicolons, braces, or parentheses")
-            suggestions.append("Verify DML syntax matches the version specified (1.2 vs 1.4)")
+            # Check if this is the specific 'device' declaration error
+            if "syntax error at 'device'" in self.message.lower():
+                suggestions.append("The 'device' statement must immediately follow 'dml 1.4;' with no other statements in between")
+                suggestions.append("Move any statements to after the device declaration")
+                suggestions.append("Example: dml 1.4;\ndevice my_device;")
+            else:
+                suggestions.append("Check for missing semicolons, braces, or parentheses")
+                suggestions.append("Verify DML syntax matches the version specified (1.2 vs 1.4)")
         
         return suggestions
     
