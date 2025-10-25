@@ -1,0 +1,36 @@
+dml 1.4;
+
+// Test file with intentional errors for AI diagnostics testing
+
+device test_device;
+
+// Error 1: Undefined symbol
+bank test_bank {
+    register test_reg size 4 @ 0x00 {
+        field test_field @ [7:0] {
+            method read() -> (uint64) {
+                return undefined_variable;  // EUNDEF error
+            }
+        }
+    }
+}
+
+// Error 2: Type mismatch
+method do_something(int32 x) -> (int32) {
+    uint64 y = 10;
+    return y + x;  // Type mismatch - returning uint64 as int32
+}
+
+// Error 3: Duplicate definition
+method helper() -> (int32) {
+    return 1;
+}
+
+method helper() -> (int32) {  // EDUP error - duplicate
+    return 2;
+}
+
+// Warning: Unused method
+method unused_method() {
+    log info: "This method is never called";
+}
