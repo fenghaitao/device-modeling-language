@@ -43,14 +43,16 @@ if [ -z "$SIMICS_BASE" ]; then
     exit 1
 fi
 
-# Get MODULE_DIR from the first argument or current directory
-if [ -n "$1" ]; then
-    MODULE_DIR=$(dirname "$1")
-else
-    MODULE_DIR="."
+# Get MODULE_DIR from the first argument (DML file path)
+if [ -z "$1" ]; then
+    echo "Error: DML file path required as argument"
+    exit 1
 fi
 
-# Invoke DMLC the same way as the build system
+DML_FILE="$1"
+MODULE_DIR=$(dirname "$DML_FILE")
+
+# Invoke DMLC with the DML file as target
 exec "$SIMICS_BASE/bin/mini-python" \
     "$DMLC_DIR/dml/python" \
     --ai-json="$DIAGNOSTIC_JSON" \
@@ -61,4 +63,4 @@ exec "$SIMICS_BASE/bin/mini-python" \
     --info \
     -I. \
     -I"$MODULE_DIR" \
-    "$@"
+    "$DML_FILE"
