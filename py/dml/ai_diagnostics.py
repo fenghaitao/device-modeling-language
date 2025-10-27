@@ -10,6 +10,7 @@ context from DMLC's error system and formats it in a machine-readable way.
 """
 
 import json
+import os
 import sys
 from typing import List, Dict, Optional, Any
 from pathlib import Path
@@ -205,7 +206,38 @@ class AIDiagnostic:
             else:
                 suggestions.append("Check for missing semicolons, braces, or parentheses")
                 suggestions.append("Verify DML syntax matches the version specified (1.2 vs 1.4)")
-        
+
+        def _collect_error_examples(errors_dir):
+            examples = {}
+            if not os.path.isdir(errors_dir):
+                return examples
+            for root, _, files in os.walk(errors_dir):
+                for fn in files:
+                    if not fn.startswith("T_") or not fn.lower().endswith(".dml"):
+                        continue
+                    tag_from_name = fn[2:-4]
+                    fp = os.path.join(root, fn)
+                    try:
+                        with open(fp, "r", errors="ignore") as f:
+                            content = f.read()
+                    except Exception:
+                        continue
+                    content = content.rstrip()
+                    suggestion_text = "Please check this typical example:\n" + content
+                    examples[tag_from_name]=suggestion_text
+            return examples
+
+        # Try to load example errors from test/1.4/errors
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            errors_dir = os.path.normpath(os.path.join(base_dir, "..",
+                "..", "test", "1.4", "errors"))
+            report_lines = _collect_error_examples(errors_dir)
+            if tag in report_lines.keys():
+                suggestions.extend(report_lines[tag])
+        except Exception as e:
+            pass
+
         return suggestions
     
     def _get_related_locations(self) -> List[Dict[str, Any]]:
