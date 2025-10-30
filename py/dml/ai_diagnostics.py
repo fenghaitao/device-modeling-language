@@ -50,6 +50,16 @@ class AIDiagnostic:
         self.kind = self._determine_kind()
         self.category = self._categorize()
         self.severity = self._determine_severity()
+        error_suggestions_file = Path(__file__).parent / 'dmlc_error_suggestions.json'
+        if error_suggestions_file.exists():
+            try:
+                with open(error_suggestions_file, 'r', encoding='utf-8') as f:
+                    self.error_suggestions_data = json.load(f)
+            except Exception as e:
+                sys.stderr.write(f"DEBUG: Failed to load error suggestions: {e}\n")
+        else:
+            self.error_suggestions_data = []
+            print(f"DEBUG: Error suggestions file not found at {error_suggestions_file}")
         
     def _determine_kind(self) -> str:
         """Determine if this is an error or warning."""
@@ -207,36 +217,28 @@ class AIDiagnostic:
                 suggestions.append("Check for missing semicolons, braces, or parentheses")
                 suggestions.append("Verify DML syntax matches the version specified (1.2 vs 1.4)")
 
-        def _collect_error_examples(errors_dir):
-            examples = {}
-            if not os.path.isdir(errors_dir):
-                return examples
-            for root, _, files in os.walk(errors_dir):
-                for fn in files:
-                    if not fn.startswith("T_") or not fn.lower().endswith(".dml"):
-                        continue
-                    tag_from_name = fn[2:-4]
-                    fp = os.path.join(root, fn)
-                    try:
-                        with open(fp, "r", errors="ignore") as f:
-                            content = f.read()
-                    except Exception:
-                        continue
-                    content = content.rstrip()
-                    suggestion_text = "Please check this typical example:\n" + content
-                    examples[tag_from_name]=suggestion_text
-            return examples
-
-        # Try to load example errors from test/1.4/errors
-        try:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            errors_dir = os.path.normpath(os.path.join(base_dir, "..",
-                "..", "test", "1.4", "errors"))
-            report_lines = _collect_error_examples(errors_dir)
-            if tag in report_lines.keys():
-                suggestions.extend(report_lines[tag])
-        except Exception as e:
-            pass
+        # load suggest from dmlc error examples' analysis
+        # there is a dmlc_error_suggestions.json file that contains common errors and suggestions
+        # load that file and match the tag to provide suggestions
+        # in that file, each entry has 'tag', 'file_content', 'error' and 'suggestions' fields
+        # if the tag matches, add those suggestions as this way
+        # the suggestions are composed as this "Check the example:\n {file_content}\n
+        # It will report the similar error: {error}\n
+        # and the error can be fixed by:\n {suggestions}"
+        # append that to suggestions list
+        if self.error_suggestions_data:
+            for entry in self.error_suggestions_data:
+                if entry.get('tag') == tag:
+                    file_content = entry.get('example', '')
+                    error_desc = entry.get('error', '')
+                    suggestion_text = entry.get('suggestions', [])
+                    suggestion_message = (
+                        f"Check the example:\n{file_content}\n"
+                        f"It will report the similar error: {error_desc}\n"
+                        f"And the error can be fixed by:\n" + "\n".join(suggestion_text)
+                    )
+                    suggestions.append(suggestion_message)
+                    break
 
         return suggestions
     
