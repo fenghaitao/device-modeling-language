@@ -50,15 +50,20 @@ class AIDiagnostic:
         self.kind = self._determine_kind()
         self.category = self._categorize()
         self.severity = self._determine_severity()
-        error_suggestions_file = Path(__file__).parent / 'dmlc_error_suggestions.json'
+        self.error_suggestions_data = {}
+
+        error_suggestions_file = Path(__file__).parent / 'res.json'
         if error_suggestions_file.exists():
             try:
                 with open(error_suggestions_file, 'r', encoding='utf-8') as f:
                     self.error_suggestions_data = json.load(f)
+                print(f"Successfully loaded {len(self.error_suggestions_data)} error suggestions")
+                # Display the keys (tags)
+                # print(f"Available tags: {list(self.error_suggestions_data.keys())}")
             except Exception as e:
                 sys.stderr.write(f"DEBUG: Failed to load error suggestions: {e}\n")
         else:
-            self.error_suggestions_data = []
+            self.error_suggestions_data = {}
             print(f"DEBUG: Error suggestions file not found at {error_suggestions_file}")
         
     def _determine_kind(self) -> str:
@@ -219,26 +224,21 @@ class AIDiagnostic:
 
         # load suggest from dmlc error examples' analysis
         # there is a dmlc_error_suggestions.json file that contains common errors and suggestions
-        # load that file and match the tag to provide suggestions
-        # in that file, each entry has 'tag', 'file_content', 'error' and 'suggestions' fields
-        # if the tag matches, add those suggestions as this way
-        # the suggestions are composed as this "Check the example:\n {file_content}\n
-        # It will report the similar error: {error}\n
-        # and the error can be fixed by:\n {suggestions}"
-        # append that to suggestions list
+        # load that file and match the tag to provide more suggestion
+        # in the json file, each entry has dict format with 'tag', 'file_content', 'error' and 'suggestions' fields
+        # if the tag matches, append the suggestion as this way
         if self.error_suggestions_data:
-            for entry in self.error_suggestions_data:
-                if entry.get('tag') == tag:
-                    file_content = entry.get('example', '')
-                    error_desc = entry.get('error', '')
-                    suggestion_text = entry.get('suggestions', [])
-                    suggestion_message = (
-                        f"Check the example:\n{file_content}\n"
-                        f"It will report the similar error: {error_desc}\n"
-                        f"And the error can be fixed by:\n" + "\n".join(suggestion_text)
-                    )
-                    suggestions.append(suggestion_message)
-                    break
+            if self.tag in self.error_suggestions_data.keys():
+                entry = self.error_suggestions_data[self.tag]
+                file_content = entry['file_content']
+                error_desc = entry['error']
+                suggestion_text = entry['suggestions']
+                suggestion_message = (
+                    f"Check the example:\n{file_content}\n"
+                    f"It will report the similar error: {error_desc}\n"
+                    f"And the error can be fixed by:\n" + "\n".join(suggestion_text)
+                )
+                suggestions.append(suggestion_message)
 
         return suggestions
     
