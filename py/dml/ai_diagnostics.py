@@ -234,8 +234,14 @@ class AIDiagnostic:
                 error_desc = entry['error']
                 suggestion_text = entry['suggestions']
                 suggestion_message = (
-                    f"Check the example:\n{file_content}\n"
-                    f"It will report the similar error: {error_desc}\n"
+                    "Check the following example of `/.../test_dev.dml`:\n"
+                    "```\n"
+                    f"{file_content}\n"
+                    "```\n"
+                    "It will report the similar error:\n"
+                    "```\n"
+                    f"{error_desc}\n"
+                    "```\n"
                     f"And the error can be fixed by:\n" + "\n".join(suggestion_text)
                 )
                 suggestions.append(suggestion_message)
