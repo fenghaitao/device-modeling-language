@@ -10,6 +10,7 @@ context from DMLC's error system and formats it in a machine-readable way.
 """
 
 import json
+import os
 import sys
 from typing import List, Dict, Optional, Any
 from pathlib import Path
@@ -49,6 +50,21 @@ class AIDiagnostic:
         self.kind = self._determine_kind()
         self.category = self._categorize()
         self.severity = self._determine_severity()
+        self.error_suggestions_data = {}
+
+        error_suggestions_file = Path(__file__).parent / 'dmlc_error_suggestions.json'
+        if error_suggestions_file.exists():
+            try:
+                with open(error_suggestions_file, 'r', encoding='utf-8') as f:
+                    self.error_suggestions_data = json.load(f)
+                print(f"Successfully loaded {len(self.error_suggestions_data)} error suggestions")
+                # Display the keys (tags)
+                # print(f"Available tags: {list(self.error_suggestions_data.keys())}")
+            except Exception as e:
+                sys.stderr.write(f"DEBUG: Failed to load error suggestions: {e}\n")
+        else:
+            self.error_suggestions_data = {}
+            print(f"DEBUG: Error suggestions file not found at {error_suggestions_file}")
         
     def _determine_kind(self) -> str:
         """Determine if this is an error or warning."""
@@ -205,7 +221,34 @@ class AIDiagnostic:
             else:
                 suggestions.append("Check for missing semicolons, braces, or parentheses")
                 suggestions.append("Verify DML syntax matches the version specified (1.2 vs 1.4)")
-        
+
+        # load suggest from dmlc error examples' analysis
+        # there is a dmlc_error_suggestions.json file that contains common errors and suggestions
+        # load that file and match the tag to provide more suggestion
+        # in the json file, each entry has dict format with 'tag', 'file_content', 'error' and 'suggestions' fields
+        # if the tag matches, append the suggestion as this way
+        if self.error_suggestions_data:
+            if self.tag in self.error_suggestions_data.keys():
+                entry = self.error_suggestions_data[self.tag]
+                file_content = entry['file_content']
+                error_desc = entry['error']
+                suggestion_text = entry['suggestion']
+                suggestion_message = (
+                    "Check the following example of `/.../test_dev.dml`:\n"
+                    "```\n"
+                    f"{file_content}\n"
+                    "```\n"
+                    "It will report the similar error:\n"
+                    "```\n"
+                    f"{error_desc}\n"
+                    "```\n"
+                    f"And the error can be fixed by:\n"
+                    "```\n"
+                    f"{suggestion_text}\n"
+                    "```\n"
+                )
+                suggestions.append(suggestion_message)
+
         return suggestions
     
     def _get_related_locations(self) -> List[Dict[str, Any]]:
