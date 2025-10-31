@@ -232,7 +232,7 @@ class AIDiagnostic:
                 entry = self.error_suggestions_data[self.tag]
                 file_content = entry['file_content']
                 error_desc = entry['error']
-                suggestion_text = entry['suggestions']
+                suggestion_text = entry['suggestion']
                 suggestion_message = (
                     "Check the following example of `/.../test_dev.dml`:\n"
                     "```\n"
