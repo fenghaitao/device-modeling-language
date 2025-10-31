@@ -52,7 +52,7 @@ class AIDiagnostic:
         self.severity = self._determine_severity()
         self.error_suggestions_data = {}
 
-        error_suggestions_file = Path(__file__).parent / 'res.json'
+        error_suggestions_file = Path(__file__).parent / 'dmlc_error_suggestions.json'
         if error_suggestions_file.exists():
             try:
                 with open(error_suggestions_file, 'r', encoding='utf-8') as f:
