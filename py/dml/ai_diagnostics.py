@@ -231,7 +231,9 @@ class AIDiagnostic:
             if self.tag in self.error_suggestions_data.keys():
                 entry = self.error_suggestions_data[self.tag]
                 file_content = entry['file_content']
-                error_desc = entry['error'] + '\n' + entry['error_desc'] + '\n'
+                error_desc = entry['error']
+                if not entry['error_desc']:
+                    error_desc += '\n' + entry['error_desc'] + '\n'
                 suggestion_text = entry['suggestion']
                 suggestion_message = (
                     "Check the following example of `/.../test_dev.dml`:\n"
