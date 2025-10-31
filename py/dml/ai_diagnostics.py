@@ -242,7 +242,10 @@ class AIDiagnostic:
                     "```\n"
                     f"{error_desc}\n"
                     "```\n"
-                    f"And the error can be fixed by:\n" + "\n".join(suggestion_text)
+                    f"And the error can be fixed by:\n"
+                    "```\n"
+                    f"{suggestion_text}\n"
+                    "```\n"
                 )
                 suggestions.append(suggestion_message)
 
