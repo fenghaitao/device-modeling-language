@@ -1,0 +1,662 @@
+{
+  "EINVOVER": {
+    "tag": "EINVOVER",
+    "hint": "",
+    "source_file": "T_EINVOVER.dml"
+  },
+  "ETYPE_integer_t": {
+    "tag": "ETYPE_integer_t",
+    "hint": "",
+    "source_file": "ETYPE_integer_t.dml"
+  },
+  "EABSTEMPLATE": {
+    "tag": "EABSTEMPLATE",
+    "hint": "",
+    "source_file": "T_EABSTEMPLATE.dml"
+  },
+  "EAFTER": {
+    "tag": "EAFTER",
+    "hint": "The statement with error is like this:\n    after h -> p: m(v);\n\nwhile the correct one should be like this:\n    after h -> p: m(p);",
+    "source_file": "T_EAFTER.dml"
+  },
+  "EAFTERHOOK": {
+    "tag": "EAFTERHOOK",
+    "hint": "The statement with error is like this:\n    after h0 -> (x): m();\n    after h0 -> (x, y): m();\n    after h1: m();\n    after h1 -> (): m();\n    after h1 -> (x, y): m();\n    after h2: m();\n    after h2 -> (): m();\n    after h2 -> (x): m();\n    after h2 -> x: m();\n\nwhile the correct one should be like this:\n    after h0: m();",
+    "source_file": "T_EAFTERHOOK.dml"
+  },
+  "EAFTERMSGCOMP": {
+    "tag": "EAFTERMSGCOMP",
+    "hint": "The statement with error is like this:\n        !b);\n        i + 1,\n\nwhile the correct one should be like this:\n        (i),\n        b);",
+    "source_file": "T_EAFTERMSGCOMP.dml"
+  },
+  "EAFTERSENDNOW": {
+    "tag": "EAFTERSENDNOW",
+    "hint": "The statement with error is like this:\n    after 1 s: h1.send_now(&v);\n    after h2 -> p: h1.send_now(&v);\n\nwhile the correct one should be like this:\n    after h2 -> p: h1.send_now(p);",
+    "source_file": "T_EAFTERSENDNOW.dml"
+  },
+  "EAINCOMP": {
+    "tag": "EAINCOMP",
+    "hint": "",
+    "source_file": "T_EAINCOMP.dml"
+  },
+  "EAMBINH": {
+    "tag": "EAMBINH",
+    "hint": "The statement with error is like this:\n        param x default 1;\n        param x default 2;\ntemplate tp3 is (tp1, tp2) {\ntemplate asm4 is (asm1, asm2) {\ntemplate asm5 is (asm1, asm3) {\ntemplate asm10 is (asm6, asm9) {}\ngroup g1 is (asm6, asm7);\n\nwhile the correct one should be like this:\ngroup g2 is (asm6, asm7) {\ngroup g3 is (asm6, asm7, asm1, asm8);",
+    "source_file": "T_EAMBINH.dml"
+  },
+  "EAMBTQMIC": {
+    "tag": "EAMBTQMIC",
+    "hint": "The statement with error is like this:\n    g1.templates.u3.m();\n    g1.templates.u3.n();\n    x.templates.u3.m();\n\nwhile the correct one should be like this:\n    g1.templates.u4.m();\n    g2.templates.u3.n();\n    g3.templates.u3.n();\n    x.templates.u4.m();",
+    "source_file": "T_EAMBTQMIC.dml"
+  },
+  "EANAME": {
+    "tag": "EANAME",
+    "hint": "",
+    "source_file": "T_EANAME.dml"
+  },
+  "EANONSTRUCT": {
+    "tag": "EANONSTRUCT",
+    "hint": "",
+    "source_file": "T_EANONSTRUCT.dml"
+  },
+  "EAPPLY": {
+    "tag": "EAPPLY",
+    "hint": "",
+    "source_file": "T_EAPPLY.dml"
+  },
+  "EAPPLYMETH": {
+    "tag": "EAPPLYMETH",
+    "hint": "",
+    "source_file": "T_EAPPLYMETH.dml"
+  },
+  "EARGD": {
+    "tag": "EARGD",
+    "hint": "",
+    "source_file": "T_EARGD.dml"
+  },
+  "EARGT": {
+    "tag": "EARGT",
+    "hint": "",
+    "source_file": "T_EARGT.dml"
+  },
+  "EARRAY": {
+    "tag": "EARRAY",
+    "hint": "The statement with error is like this:\n        h.send_now();\n        h[0].send_now();\n    cast(dev, t).h.send_now();\n    cast(dev, t).h[0].send_now();\n\nwhile the correct one should be like this:\n        h[0][0].send_now();\n    cast(dev, t).h[0][0].send_now();",
+    "source_file": "T_EARRAY.dml"
+  },
+  "EASTYPE": {
+    "tag": "EASTYPE",
+    "hint": "",
+    "source_file": "T_EASTYPE.dml"
+  },
+  "EASZLARGE": {
+    "tag": "EASZLARGE",
+    "hint": "",
+    "source_file": "T_EASZLARGE.dml"
+  },
+  "EATTRCOLL": {
+    "tag": "EATTRCOLL",
+    "hint": "The statement with error is like this:\n    saved int var;\nsaved int foo_var;\n        saved int var;\n   saved int var;\n       saved int v;\n       saved int v;\n    saved int i;\nsaved int p_i;\n   register g_r @ 0;\n       register r @ 4;\n\nwhile the correct one should be like this:\n        saved int var;\n    saved int ok;\nsaved int ok;",
+    "source_file": "T_EATTRCOLL.dml"
+  },
+  "EAUNKDIMSIZE": {
+    "tag": "EAUNKDIMSIZE",
+    "hint": "The statement with error is like this:\ngroup g1[i < ...];\ngroup g4[i < 4][j < ...];\n\nwhile the correct one should be like this:\ngroup g2[i < ...];\ngroup g3[i < ...];\ngroup g5[i < 4][j < ...];",
+    "source_file": "T_EAUNKDIMSIZE.dml"
+  },
+  "EBITRN": {
+    "tag": "EBITRN",
+    "hint": "",
+    "source_file": "T_EBITRN.dml"
+  },
+  "EBITRO": {
+    "tag": "EBITRO",
+    "hint": "The statement with error is like this:\n        field f1 @ [3:0];\n        field f2 @ [3];\n        field f[i < 2] @ [i+1:i];\n        field f1[i < 2] @ [2*i+1:2*i];\n        field f2 @ [3];\n\nwhile the correct one should be like this:\n        field f[i < 2] @ [2*i+1:2*i];",
+    "source_file": "T_EBITRO.dml"
+  },
+  "EBITRR": {
+    "tag": "EBITRR",
+    "hint": "",
+    "source_file": "T_EBITRR.dml"
+  },
+  "EBTYPE": {
+    "tag": "EBTYPE",
+    "hint": "The statement with error is like this:\n    after true s: m();\n    after NULL s: m();\n    after true cycles: m();\n    after NULL cycles: m();\n    after true ps: m();\n    after NULL ps: m();\n    after (&str)->h: m();\n        field f @ [4.3:0];\n\nwhile the correct one should be like this:\n    after 'a' s: m();\n    after ((&str)->h): m();",
+    "source_file": "T_EBTYPE.dml"
+  },
+  "ECAST": {
+    "tag": "ECAST",
+    "hint": "The statement with error is like this:\n    cast(s, uint32);\n    cast(i, s_t);\n    cast(s, l_t);\n    cast(l, uint32);\n    cast(i, l_t);\n    cast(l, s_t);\n    cast(v, uint32);\n    cast(i, v_t);\n    cast(v, alt_v_t);\n    cast(l, uint32);\n    cast(a, double);\n    cast(i, a_t);\n    cast(i, f_t);\n    cast(cast(dev, t), void *);\n    cast(cast(dev, t), int64);\n\nwhile the correct one should be like this:\n    cast(s, s_t);\n    cast(l, l_t);\n    cast(v, v_t);\n    cast(a, uint32);\n    cast(f, uint32);",
+    "source_file": "T_ECAST.dml"
+  },
+  "ECONDINEACH": {
+    "tag": "ECONDINEACH",
+    "hint": "",
+    "source_file": "T_ECONDINEACH.dml"
+  },
+  "ECONSTFUN": {
+    "tag": "ECONSTFUN",
+    "hint": "",
+    "source_file": "T_ECONSTFUN.dml"
+  },
+  "ECONSTP_stringlit": {
+    "tag": "ECONSTP_stringlit",
+    "hint": "",
+    "source_file": "T_ECONSTP_stringlit.dml"
+  },
+  "ECSADD": {
+    "tag": "ECSADD",
+    "hint": "The statement with error is like this:\n    local const char *v2 = \"a\" + v1;\n    local const char *v3 = v1 + v2;\n    local string_t v4 = cast(v1,string_t) + cast(v2,string_t);\n    local const int8 *v5 = cast(v1,const int8*) + cast(v2,const int8*);\n\nwhile the correct one should be like this:\n    local const char *v1 = \"a\" + \"b\";",
+    "source_file": "T_ECSADD.dml"
+  },
+  "ECYCLICTRAIT": {
+    "tag": "ECYCLICTRAIT",
+    "hint": "",
+    "source_file": "T_ECYCLICTRAIT.dml"
+  },
+  "EDATAINIT": {
+    "tag": "EDATAINIT",
+    "hint": "The statement with error is like this:\nsession struct_t b = { .x = 0 };\n    .y = { .i = 0 }\nsession struct_t d = { .x = 0, .y = { .i = 0, .j = 0}, .x = 0 };\nsession struct_t e = { .x = 0, .y = { .i = 0, .j = 0}, .bad = 0 };\n    .y = { .i = 0, .j = 0, .bad = 0 }\nsession bitfields_t l = { .x = 0 };\nsession bitfields_t m = { .x = 0, .y = 0, .x = 0 };\nsession bitfields_t n = { .x = 0, .y = 0, .bad = 0 };\n    .y = { .i = 0 }\n    .y = { .i = 0, .j = 0, .bad = 0 }\n\nwhile the correct one should be like this:\nsession struct_t a = { .x = 0, .y = { .i = 0, .j = 0} };\nsession bitfields_t j = { .x = 0, .y = { .i = 0, .j = 0} };",
+    "source_file": "T_EDATAINIT.dml"
+  },
+  "EDVAR": {
+    "tag": "EDVAR",
+    "hint": "The statement with error is like this:\n    local int i;\n    local int i;\n\nwhile the correct one should be like this:\n        local int i;\n        local int i;",
+    "source_file": "T_EDVAR.dml"
+  },
+  "EEMPTYSTRUCT": {
+    "tag": "EEMPTYSTRUCT",
+    "hint": "",
+    "source_file": "T_EEMPTYSTRUCT.dml"
+  },
+  "EERRSTMT": {
+    "tag": "EERRSTMT",
+    "hint": "The statement with error is like this:\n        error;\n        error;\n        error;\n        error;\nsubdevice port;\nsubdevice bank;\n        subdevice s;\n        port p;\n        bank b;\n            subdevice s;\n            port p;\n            bank b;\n    subdevice port_ { param name = \"port\"; }\n                subdevice s;\n                port p;\n                bank b;\n        subdevice bank;\n\nwhile the correct one should be like this:\n    bank port;\n    subdevice port { param name = \"port_\"; }\nport p {",
+    "source_file": "T_EERRSTMT.dml"
+  },
+  "EEXPORT": {
+    "tag": "EEXPORT",
+    "hint": "",
+    "source_file": "T_EEXPORT.dml"
+  },
+  "EEXTERNINCOMP": {
+    "tag": "EEXTERNINCOMP",
+    "hint": "The statement with error is like this:\nextern uint32 ext2;\nextern bitfields 32 { uint1 x @[4]; } ext2;\nextern int vect ext4;\nextern int vect ext4;\nextern void ext7();\nextern void ext7(int);\nextern void ext8();\nextern void ext8(...);\nextern void ext9(int);\nextern void ext9(...);\n\nwhile the correct one should be like this:\nextern uint32 ext0;\nextern object_t ext3;\nextern int_vect_t ext5;\nextern void ext6();",
+    "source_file": "T_EEXTERNINCOMP.dml"
+  },
+  "EFUNARRAY": {
+    "tag": "EFUNARRAY",
+    "hint": "",
+    "source_file": "T_EFUNARRAY.dml"
+  },
+  "EFUNSTRUCT": {
+    "tag": "EFUNSTRUCT",
+    "hint": "",
+    "source_file": "T_EFUNSTRUCT.dml"
+  },
+  "EHOOKTYPE": {
+    "tag": "EHOOKTYPE",
+    "hint": "The statement with error is like this:\n    hook(struct { int x; }) h1;\n    hook(int (*)[nonconstant_int]) h2;\n    hook(layout \"little-endian\" { int32 x; }) h3;\nsaved hook(struct { int x; }) saved_h;\n    local hook(struct { int x; }) h1;\n    local hook(int (*)[i]) h2;\n    local hook(layout \"little-endian\" { int32 x; }) h3;\n\nwhile the correct one should be like this:\n    // its type is never validated.",
+    "source_file": "T_EHOOKTYPE.dml"
+  },
+  "EIDENT": {
+    "tag": "EIDENT",
+    "hint": "The statement with error is like this:\nparam p = garbage;\n    param p = c;\n        len;\n        this.len;\n    x.c;\n        session int s = z;\n    local int v = v;\n    local (int a, int b) = (4, a);\n\nwhile the correct one should be like this:\n        g.len;",
+    "source_file": "T_EIDENT.dml"
+  },
+  "EIDENTSIZEOF": {
+    "tag": "EIDENTSIZEOF",
+    "hint": "",
+    "source_file": "T_EIDENTSIZEOF.dml"
+  },
+  "EIDXVAR": {
+    "tag": "EIDXVAR",
+    "hint": "",
+    "source_file": "T_EIDXVAR.dml"
+  },
+  "EILLCOMP": {
+    "tag": "EILLCOMP",
+    "hint": "The statement with error is like this:\n    cast(dev, object) == cast(dev, init);\n\nwhile the correct one should be like this:\n    cast(dev, object) == cast(dev, object);",
+    "source_file": "T_EILLCOMP.dml"
+  },
+  "EIMPLMEMBER": {
+    "tag": "EIMPLMEMBER",
+    "hint": "",
+    "source_file": "T_EIMPLMEMBER.dml"
+  },
+  "EINDEPENDENTVIOL": {
+    "tag": "EINDEPENDENTVIOL",
+    "hint": "The statement with error is like this:\n    param p1 = a.val;\n    param p2 = s;\n        log info: \"r\";\n        dependent();\n        i = s;\n        j = ts;\n        j = this.ts;\n    log info: \"q\";\n    dependent();\n    local int to_ret = s;\n    session int ses;\n    saved int sav;\n    local bool not_present = !ifaces.i2c_bus.start;\n        to_ret += ifaces.i2c_bus.start(0);\n    increment(&to_ret);\n\nwhile the correct one should be like this:\n    (&dependent)(obj);",
+    "source_file": "T_EINDEPENDENTVIOL.dml"
+  },
+  "EINVOVER_confidentiality": {
+    "tag": "EINVOVER_confidentiality",
+    "hint": "",
+    "source_file": "T_EINVOVER_confidentiality.dml"
+  },
+  "ELAYOUT": {
+    "tag": "ELAYOUT",
+    "hint": "",
+    "source_file": "T_ELAYOUT.dml"
+  },
+  "ELLEV": {
+    "tag": "ELLEV",
+    "hint": "",
+    "source_file": "T_ELLEV.dml"
+  },
+  "ELOGGROUPS": {
+    "tag": "ELOGGROUPS",
+    "hint": "",
+    "source_file": "T_ELOGGROUPS.dml"
+  },
+  "EMEMBERTQMIC": {
+    "tag": "EMEMBERTQMIC",
+    "hint": "The statement with error is like this:\n    g.templates.t1.nonexistent();\n    g.templates.t1.m2();\n    cast(g, t3).templates.t1.nonexistent();\n    g.templates.t2.m2();\n    g.templates.t1.m3();\n    subgroup.templates.subdeclarer.m();\n\nwhile the correct one should be like this:\n    g.templates.t1.m0();\n    g.templates.t2.m1();\n    g.templates.t3.m1();",
+    "source_file": "T_EMEMBERTQMIC.dml"
+  },
+  "EMETH": {
+    "tag": "EMETH",
+    "hint": "The statement with error is like this:\n    independent method indep() default {\n    independent method indep_ret() -> (int) default { return 0; }\n    shared method downcast_with_fallback(object fallback) -> (u) {\n    shared method downcast_with_fallback(u fallback) -> (object) {\n    method indep() {\n    independent method int_return() -> (int) {\n    independent startup method indep() {\n    independent startup memoized method indep_ret() -> (int) {\ninline method inline_args(int x, inline y) {}\nmethod throwing() {}\n    char a,\nmethod int_return() -> (char) default { return 0; }\n                          char)\n        method m() {}\n        method m(int i) -> (int) {\n        method m(char *c) { }\n        method vararg() { }\n\nwhile the correct one should be like this:\n    shared method downcast_with_fallback(u fallback) -> (u) {\n    method int_args(int_alias_t a, uint32 b) {}",
+    "source_file": "T_EMETH.dml"
+  },
+  "ENALLOW": {
+    "tag": "ENALLOW",
+    "hint": "",
+    "source_file": "T_ENALLOW.dml"
+  },
+  "ENAMECOLL": {
+    "tag": "ENAMECOLL",
+    "hint": "The statement with error is like this:\nparam c0 = 5;\nconnect c0;\nparam c1 = 5;\nmethod c1() {\nparam c2 = 1;\nsession int c2;\nconnect c3;\nattribute c3;\nconnect c4;\nmethod c4() { }\nmethod c5() { }\nsession int c5;\nconnect c6;\nsession int c6;\ntemplate c7 { }\ntemplate c7 { }\nsession int c8;\nsession int c8;\ntemplate c9 {}\ntypedef int c9;\ntypedef int t1;\ntypedef int t1;\ntypedef struct { int i; } s;\ntypedef struct { int i; } s;\nmethod bar() default { }\nmethod bar() default { }\n    int i;\n    int i;\nloggroup g;\n    register x[i < 4] size 1 @ i;\n    group x[i < 4];\n    param foo = 1;\n    param foo = 1;\n    param baz default 1;\n    param baz default 1;\n    param p default 1;\n        param p default 2;\nextern int x;\nbank x;\n    param name = \"dev\";\n    register r1 size 1 @ 0 {}\n        param name = \"r1\";\n        param name = \"r_collision\";\n        param name = \"r_collision\";\n    uint32 i;\n    uint32 i;\n    shared method m() default {}\n    shared method m() default {}\n    param i: int;\n    param i: int;\n    shared method mp() default {}\n    param mp: int;\n    param pm: int;\n    shared method pm() default {}\n    session int ses;\n    session int ses;\n    param p0: int;\n    shared method p0();\n    method p0() {}\n    param p0: int;\n    shared method am();\n    shared method dm() default {}\n    shared method dm2() default {}\n    session int ses;\n    param am: int;\n    param dm: int;\n    session int dm2;\n    session int ses;\n    param am = 5;\n    param dm = 6;\n    shared method m() default {}\n    param p default 1;\n    param p default 2;\n    register m size 1 @ 0;\ngroup ga[i < 4][i < 4];\nexport m1 as \"m_dup\";\nexport m2 as \"m_dup\";\n    param overridden_clash default 1;\n    param overridden_clash default 1;\n        uint32 a;\n        uint32 a;\n        uint16 a @ [15:0];\n        uint16 a @ [31:16];\n\nwhile the correct one should be like this:\nextern typedef int t0;",
+    "source_file": "T_ENAMECOLL.dml"
+  },
+  "ENAMEID": {
+    "tag": "ENAMEID",
+    "hint": "",
+    "source_file": "T_ENAMEID.dml"
+  },
+  "ENCONST": {
+    "tag": "ENCONST",
+    "hint": "The statement with error is like this:\n    #if (x) {}\n    #if (i == 0) {\n    i = i == 0 #? 1 #: 2;\n\nwhile the correct one should be like this:\n    #if (y) {}",
+    "source_file": "T_ENCONST.dml"
+  },
+  "ENLST": {
+    "tag": "ENLST",
+    "hint": "",
+    "source_file": "T_ENLST.dml"
+  },
+  "ENMETH": {
+    "tag": "ENMETH",
+    "hint": "",
+    "source_file": "T_ENMETH.dml"
+  },
+  "ENOBJ": {
+    "tag": "ENOBJ",
+    "hint": "The statement with error is like this:\n    each foo_t in (param);\n    each foo_t in (b.r);\nexport 5 as \"b_c\";\n\nwhile the correct one should be like this:\n    each foo_t in (b.r[0]);",
+    "source_file": "T_ENOBJ.dml"
+  },
+  "ENOPROV": {
+    "tag": "ENOPROV",
+    "hint": "",
+    "source_file": "T_ENOPROV.dml"
+  },
+  "ENORET": {
+    "tag": "ENORET",
+    "hint": "The statement with error is like this:\nmethod m2() -> (int) {\nmethod m3() -> (int) {\ninline method m9(inline x) -> (int) {\n    shared method m() -> (int) default {\n\nwhile the correct one should be like this:\nmethod m1() -> (int) throws {\nmethod m4() -> (int) {\nmethod m7(int i) -> (int) throws {",
+    "source_file": "T_ENORET.dml"
+  },
+  "ENPARAM": {
+    "tag": "ENPARAM",
+    "hint": "",
+    "source_file": "T_ENPARAM.dml"
+  },
+  "ENSHARED": {
+    "tag": "ENSHARED",
+    "hint": "",
+    "source_file": "T_ENSHARED.dml"
+  },
+  "ENSHAREDTQMIC": {
+    "tag": "ENSHAREDTQMIC",
+    "hint": "The statement with error is like this:\n    x.templates.t2.nonshared();\n    x.templates.t1.abstract1();\n    x.templates.t2.abstract2();\n    x.templates.t2.sm3();\n\nwhile the correct one should be like this:\n    x.templates.t1.sm1();",
+    "source_file": "T_ENSHAREDTQMIC.dml"
+  },
+  "ENTMPL": {
+    "tag": "ENTMPL",
+    "hint": "",
+    "source_file": "T_ENTMPL.dml"
+  },
+  "ENVAL": {
+    "tag": "ENVAL",
+    "hint": "The statement with error is like this:\n    m;\n    a;\n    b.r1;\n    b.r2.f;\n    cast([], t);\nparam x = dev == NULL;\n\nwhile the correct one should be like this:\nparam im_ref = c.signal.signal_raise;\nparam sm_dir_ref = cast(dev, t).sm1;\nparam sm_indir_ref = cast(dev, t).sm2;",
+    "source_file": "T_ENVAL.dml"
+  },
+  "EPRAGMA": {
+    "tag": "EPRAGMA",
+    "hint": "The statement with error is like this:\n/*% MYVERYCOOLPRAGMA %*/\n/*% 😀 %*/\n/*%\n\nwhile the correct one should be like this:\n/*% COVERITY irrelevant %*/\n/*%\n/*% %*/\n/*% MYVERYCOOLPRAGMA % */\n//% MYVERYCOOLPRAGMA",
+    "source_file": "T_EPRAGMA.dml"
+  },
+  "EREGOL": {
+    "tag": "EREGOL",
+    "hint": "The statement with error is like this:\n    register a size 4 @ 8;\n    register b size 4 @ 11;\n    register a[i < 4] size 4 @ 8 + 8 * i;\n        register r0 size 4 @ 0x00;\n    register r[i < 3] size 4 @ i * 0x8000_0000_0000_0000;\n    register r[i < 3] size 4 @ 4 + cast(i * 0x8000_0000, uint32);\n   register CONFLICT0 size 2 @ 0x0;\n   group G[i < 2] { register X size 4 @ i*0x200; }\n    register r[i < 2][j < 2] size 4 @ i * 7 + j * 10;\n    register r size 4 @ i;\n                register a size 4 @ 8;\n                register b size 4 @ 11;\n                register d size 4 @ i;\n                register e size 4 @ j;\n                register f size 4 @ k;\n\nwhile the correct one should be like this:\n    register c size 4 @ 18;\n                register c[l < 2] size 4 @ 18 + l*4;",
+    "source_file": "T_EREGOL.dml"
+  },
+  "ERETARGNAME": {
+    "tag": "ERETARGNAME",
+    "hint": "",
+    "source_file": "T_ERETARGNAME.dml"
+  },
+  "ERETARGS": {
+    "tag": "ERETARGS",
+    "hint": "",
+    "source_file": "T_ERETARGS.dml"
+  },
+  "ERETLVALS": {
+    "tag": "ERETLVALS",
+    "hint": "The statement with error is like this:\n    f();\n    i = f();\n    (i, j) = f();\n    (i, j) = g();\n    (i, j) = h();\n\nwhile the correct one should be like this:\n    g();\n    h();",
+    "source_file": "T_ERETLVALS.dml"
+  },
+  "ERVAL": {
+    "tag": "ERVAL",
+    "hint": "",
+    "source_file": "T_ERVAL.dml"
+  },
+  "ESAVEDCONST": {
+    "tag": "ESAVEDCONST",
+    "hint": "The statement with error is like this:\nsaved const int b;\nsaved const int c[4];\nsaved s_t d;\nsaved lo_t e;\n\nwhile the correct one should be like this:\nsaved int a;\nsession const int g;",
+    "source_file": "T_ESAVEDCONST.dml"
+  },
+  "ESERIALIZE": {
+    "tag": "ESERIALIZE",
+    "hint": "The statement with error is like this:\n    saved void *v_ptr;\n    saved int a2[num];\n    saved int a3[size];\nsaved void *v_ptr;\nsaved int *i_ptr;\nsaved f f_ptr;\nsaved int_vect x;\nsaved void function(void);\n\nwhile the correct one should be like this:\n    saved int i[2];",
+    "source_file": "T_ESERIALIZE.dml"
+  },
+  "ESTATICEXPORT": {
+    "tag": "ESTATICEXPORT",
+    "hint": "",
+    "source_file": "T_ESTATICEXPORT.dml"
+  },
+  "ESTOREDINLINE": {
+    "tag": "ESTOREDINLINE",
+    "hint": "",
+    "source_file": "T_ESTOREDINLINE.dml"
+  },
+  "ESWITCH": {
+    "tag": "ESWITCH",
+    "hint": "",
+    "source_file": "T_ESWITCH.dml"
+  },
+  "ESYNTAX": {
+    "tag": "ESYNTAX",
+    "hint": "The statement with error is like this:\n// unfortunately we have no nice way to check that errors are reported for all\nmethod m0(int) {\n    method m2() {\n    method m3(int i) -> (int) {\n        param p : int;\n        shared method m() {}\nparam p : int;\nshared method m() {}\nparam bigger = 0x1_0000_0000_0000_0000;\nparam bigdec = 18446744073709551616;\n = 0b1_00000000_00000000_00000000_00000000_00000000_00000000_00000000_00000000;\nparam walrus := 3;\nparam walrus_default :default 3;\n    param p1: int = 3;\n    param p2: int default 4;\nif\nelse\n    (a, b) = 5;\n        a = b = throwing();\n    a = b = inlined(0);\n    goto foo;\n/*% COVERITY %*/\n\nwhile the correct one should be like this:\nparam X = 0;\n    param p : int;\n    a = b = simple();",
+    "source_file": "T_ESYNTAX.dml"
+  },
+  "ESYNTAX_after": {
+    "tag": "ESYNTAX_after",
+    "hint": "",
+    "source_file": "T_ESYNTAX_after.dml"
+  },
+  "ESYNTAX_arg_inits": {
+    "tag": "ESYNTAX_arg_inits",
+    "hint": "The statement with error is like this:\n    i({3});\n    f({3});\n\nwhile the correct one should be like this:\n    m({3});",
+    "source_file": "T_ESYNTAX_arg_inits.dml"
+  },
+  "ESYNTAX_async": {
+    "tag": "ESYNTAX_async",
+    "hint": "",
+    "source_file": "T_ESYNTAX_async.dml"
+  },
+  "ESYNTAX_await": {
+    "tag": "ESYNTAX_await",
+    "hint": "",
+    "source_file": "T_ESYNTAX_await.dml"
+  },
+  "ESYNTAX_dollar": {
+    "tag": "ESYNTAX_dollar",
+    "hint": "",
+    "source_file": "T_ESYNTAX_dollar.dml"
+  },
+  "ESYNTAX_hash": {
+    "tag": "ESYNTAX_hash",
+    "hint": "",
+    "source_file": "T_ESYNTAX_hash.dml"
+  },
+  "ESYNTAX_hook": {
+    "tag": "ESYNTAX_hook",
+    "hint": "The statement with error is like this:\nhook(int i) h1;\nhook(int (*f)(void *aux)) h2;\nhook(int array[4]) h3;\nhook(int) h6[2];\n\nwhile the correct one should be like this:\nhook(int (*)(void *aux)) h4;",
+    "source_file": "T_ESYNTAX_hook.dml"
+  },
+  "ESYNTAX_int_int": {
+    "tag": "ESYNTAX_int_int",
+    "hint": "",
+    "source_file": "T_ESYNTAX_int_int.dml"
+  },
+  "ESYNTAX_label": {
+    "tag": "ESYNTAX_label",
+    "hint": "",
+    "source_file": "T_ESYNTAX_label.dml"
+  },
+  "ESYNTAX_method_qualifiers": {
+    "tag": "ESYNTAX_method_qualifiers",
+    "hint": "The statement with error is like this:\nindependent startup method m1(int i) {}\nindependent startup method m2() throws {}\nindependent startup method m3() -> (int) { }\nindependent startup method m4() default {}\nindependent startup memoized method m7() {}\nindependent startup memoized method m8(int i) -> (int) { return 1; }\nindependent startup memoized method m9() -> (int) default { return 1; }\n    shared independent startup method tm1(int i) {}\n    shared independent startup method tm2() throws {}\n    shared independent startup method tm3() -> (int) {}\n    shared independent startup method tm4() default {}\n    shared independent startup memoized method tm7() {}\n    shared independent startup memoized method tm8(int i) -> (int) {\n    shared independent startup memoized method tm9() -> (int) default {\n\nwhile the correct one should be like this:\nindependent startup method m0() {}\nindependent startup memoized method m5() -> (int) { return 1; }\nmethod independent() {}\n    shared independent startup method tm0() {}\n    shared independent startup memoized method tm5() -> (int) {\n    shared independent startup method tm10();",
+    "source_file": "T_ESYNTAX_method_qualifiers.dml"
+  },
+  "ESYNTAX_multiassign": {
+    "tag": "ESYNTAX_multiassign",
+    "hint": "",
+    "source_file": "T_ESYNTAX_multiassign.dml"
+  },
+  "ESYNTAX_old_after": {
+    "tag": "ESYNTAX_old_after",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_after.dml"
+  },
+  "ESYNTAX_old_anon_bank": {
+    "tag": "ESYNTAX_old_anon_bank",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_anon_bank.dml"
+  },
+  "ESYNTAX_old_array_1": {
+    "tag": "ESYNTAX_old_array_1",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_array_1.dml"
+  },
+  "ESYNTAX_old_array_2": {
+    "tag": "ESYNTAX_old_array_2",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_array_2.dml"
+  },
+  "ESYNTAX_old_assign": {
+    "tag": "ESYNTAX_old_assign",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_assign.dml"
+  },
+  "ESYNTAX_old_assignop": {
+    "tag": "ESYNTAX_old_assignop",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_assignop.dml"
+  },
+  "ESYNTAX_old_call_noargs": {
+    "tag": "ESYNTAX_old_call_noargs",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_call_noargs.dml"
+  },
+  "ESYNTAX_old_field": {
+    "tag": "ESYNTAX_old_field",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_field.dml"
+  },
+  "ESYNTAX_old_log_type": {
+    "tag": "ESYNTAX_old_log_type",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_log_type.dml"
+  },
+  "ESYNTAX_old_method_noparams": {
+    "tag": "ESYNTAX_old_method_noparams",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_method_noparams.dml"
+  },
+  "ESYNTAX_old_parameter": {
+    "tag": "ESYNTAX_old_parameter",
+    "hint": "",
+    "source_file": "T_ESYNTAX_old_parameter.dml"
+  },
+  "ESYNTAX_signed": {
+    "tag": "ESYNTAX_signed",
+    "hint": "",
+    "source_file": "T_ESYNTAX_signed.dml"
+  },
+  "ESYNTAX_stringify": {
+    "tag": "ESYNTAX_stringify",
+    "hint": "",
+    "source_file": "T_ESYNTAX_stringify.dml"
+  },
+  "ESYNTAX_struct": {
+    "tag": "ESYNTAX_struct",
+    "hint": "",
+    "source_file": "T_ESYNTAX_struct.dml"
+  },
+  "ESYNTAX_switch_nested_case": {
+    "tag": "ESYNTAX_switch_nested_case",
+    "hint": "",
+    "source_file": "T_ESYNTAX_switch_nested_case.dml"
+  },
+  "ESYNTAX_switch_noncompound": {
+    "tag": "ESYNTAX_switch_noncompound",
+    "hint": "",
+    "source_file": "T_ESYNTAX_switch_noncompound.dml"
+  },
+  "ESYNTAX_this": {
+    "tag": "ESYNTAX_this",
+    "hint": "",
+    "source_file": "T_ESYNTAX_this.dml"
+  },
+  "ESYNTAX_time_unit": {
+    "tag": "ESYNTAX_time_unit",
+    "hint": "The statement with error is like this:\n    after 1 invalid: m();\n\nwhile the correct one should be like this:\n    after 1 s: m();\n    after 1 cycles: m();\n    after 1 ps: m();",
+    "source_file": "T_ESYNTAX_time_unit.dml"
+  },
+  "ESYNTAX_unicode_bidi": {
+    "tag": "ESYNTAX_unicode_bidi",
+    "hint": "",
+    "source_file": "T_ESYNTAX_unicode_bidi.dml"
+  },
+  "ESYNTAX_with": {
+    "tag": "ESYNTAX_with",
+    "hint": "",
+    "source_file": "T_ESYNTAX_with.dml"
+  },
+  "ESYNTAX_zero": {
+    "tag": "ESYNTAX_zero",
+    "hint": "",
+    "source_file": "T_ESYNTAX_zero.dml"
+  },
+  "ETQMIC": {
+    "tag": "ETQMIC",
+    "hint": "The statement with error is like this:\n    dev.templates.nonexistent.m();\n    x.templates.nonexistent.m();\n    dev.templates.write.write(4);\n    x.templates.t3.m();\n    x.templates.u.n();\n\nwhile the correct one should be like this:\n    dev.templates.t1.m();",
+    "source_file": "T_ETQMIC.dml"
+  },
+  "ETRAITUPCAST": {
+    "tag": "ETRAITUPCAST",
+    "hint": "The statement with error is like this:\n    cast(p, a_t);\n    cast(c, a_t);\n    cast(4, a_t);\n    cast(NULL, a_t);\n\nwhile the correct one should be like this:\n    cast(p, b_t);\n    cast(c, b_t);",
+    "source_file": "T_ETRAITUPCAST.dml"
+  },
+  "ETYPE": {
+    "tag": "ETYPE",
+    "hint": "The statement with error is like this:\nextern undefined_type_t undef_ret();\nextern void undef_arg(undefined_type_t);\nextern undefined_type undef_val;\ntypedef undefined_type_t undef_ret();\nextern typedef void undef_arg(undefined_type_t);\nextern typedef undefined_type undef_val;\n        undefined_type b)\n        -> (undefined_type);\n        undefined_type b)\n        -> (undefined_type) {\n        undefined_type b)\n        -> (undefined_type) default {\n        undefined_type b)\n        -> (undefined_type) {\n\nwhile the correct one should be like this:\n        bool a,\n        bool a,\n        bool a,\n        bool a,",
+    "source_file": "T_ETYPE.dml"
+  },
+  "ETYPEDPARAMVIOL": {
+    "tag": "ETYPEDPARAMVIOL",
+    "hint": "",
+    "source_file": "T_ETYPEDPARAMVIOL.dml"
+  },
+  "EUNDEF": {
+    "tag": "EUNDEF",
+    "hint": "",
+    "source_file": "T_EUNDEF.dml"
+  },
+  "EUNOP": {
+    "tag": "EUNOP",
+    "hint": "",
+    "source_file": "T_EUNOP.dml"
+  },
+  "EVERS": {
+    "tag": "EVERS",
+    "hint": "",
+    "source_file": "T_EVERS.dml"
+  },
+  "EVLALEN": {
+    "tag": "EVLALEN",
+    "hint": "",
+    "source_file": "T_EVLALEN.dml"
+  },
+  "EVOID": {
+    "tag": "EVOID",
+    "hint": "The statement with error is like this:\nsession void i;\n    void m;\nsession int (*f2)(void arg);\nsession int (*f3)(void, int i);\nsession void arr1[2];\nsession void (*arr3)[2];\nsession void vect v;\nextern void x;\n    local void i;\n\nwhile the correct one should be like this:\nsession void (*f1)(void);\nsession void *arr2[2];\ntypedef void void_t;",
+    "source_file": "T_EVOID.dml"
+  },
+  "EVOID_typedefed": {
+    "tag": "EVOID_typedefed",
+    "hint": "",
+    "source_file": "T_EVOID_typedefed.dml"
+  },
+  "WASTRUNC": {
+    "tag": "WASTRUNC",
+    "hint": "",
+    "source_file": "T_WASTRUNC.dml"
+  },
+  "WHOOKSEND": {
+    "tag": "WHOOKSEND",
+    "hint": "",
+    "source_file": "T_WHOOKSEND.dml"
+  },
+  "WIMMAFTER": {
+    "tag": "WIMMAFTER",
+    "hint": "",
+    "source_file": "T_WIMMAFTER.dml"
+  },
+  "WNEGCONSTCOMP": {
+    "tag": "WNEGCONSTCOMP",
+    "hint": "",
+    "source_file": "T_WNEGCONSTCOMP.dml"
+  },
+  "WNOIS": {
+    "tag": "WNOIS",
+    "hint": "",
+    "source_file": "T_WNOIS.dml"
+  },
+  "WPCAST": {
+    "tag": "WPCAST",
+    "hint": "",
+    "source_file": "T_WPCAST.dml"
+  },
+  "WREDUNDANTLEVEL": {
+    "tag": "WREDUNDANTLEVEL",
+    "hint": "",
+    "source_file": "WREDUNDANTLEVEL.dml"
+  },
+  "WREDUNDANTLEVEL_dep": {
+    "tag": "WREDUNDANTLEVEL_dep",
+    "hint": "",
+    "source_file": "T_WREDUNDANTLEVEL_dep.dml"
+  },
+  "WTEMPLATEIS": {
+    "tag": "WTEMPLATEIS",
+    "hint": "",
+    "source_file": "T_WTEMPLATEIS.dml"
+  },
+  "WTTYPEC": {
+    "tag": "WTTYPEC",
+    "hint": "",
+    "source_file": "T_WTTYPEC.dml"
+  },
+  "WUNUSED_DML12": {
+    "tag": "WUNUSED_DML12",
+    "hint": "",
+    "source_file": "WUNUSED_DML12.dml"
+  },
+  "dml-1.2": {
+    "tag": "dml-1.2",
+    "hint": "",
+    "source_file": "dml-1.2.dml"
+  }
+}
