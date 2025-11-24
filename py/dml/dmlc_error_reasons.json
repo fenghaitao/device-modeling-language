@@ -1,0 +1,674 @@
+{
+  "EAFTER": {
+    "tag_name": "EAFTER",
+    "reason_comments": "An illegal `after` statement was specified. The method callback specified may not have any output parameters/return values. If the after is with a time delay or bound to a hook, every input parameter must be of serializable type (unless that input parameter receives a message component of a hook)."
+  },
+  "EAFTERSENDNOW": {
+    "tag_name": "EAFTERSENDNOW",
+    "reason_comments": "An illegal `after` statement was specified where the callback is `send_now` of a hook. Every message component type of the hook must be serializable (unless that component is provided through a message component parameter of the `after` statement, if the `after` statement is attaching the callback to another hook.)"
+  },
+  "EAFTERHOOK": {
+    "tag_name": "EAFTERHOOK",
+    "reason_comments": "An illegal hook-bound `after` statement was specified. The number of message component parameters must be equal to the number of message components of the hook."
+  },
+  "EAFTERMSGCOMPPARAM": {
+    "tag_name": "EAFTERMSGCOMPPARAM",
+    "reason_comments": "Message component parameters bound by a hook-bound after statement can only be used as direct arguments to the specified callback method, and cannot be used in arbitrary expressions."
+  },
+  "EHOOKTYPE": {
+    "tag_name": "EHOOKTYPE",
+    "reason_comments": "There are some minor restrictions to a hook's message component types. Anonymous structs and arrays of variable/unknown size are not supported."
+  },
+  "ECYCLICIMP": {
+    "tag_name": "ECYCLICIMP",
+    "reason_comments": "A DML file imports itself, either directly or indirectly."
+  },
+  "ECYCLICTEMPLATE": {
+    "tag_name": "ECYCLICTEMPLATE",
+    "reason_comments": "A template inherits from itself, either directly or indirectly."
+  },
+  "EAMBINH": {
+    "tag_name": "EAMBINH",
+    "reason_comments": "If a method or parameter has multiple definitions, then there must be a unique definition that overrides all other definitions."
+  },
+  "EAMBDEFAULT": {
+    "tag_name": "EAMBDEFAULT",
+    "reason_comments": "A method may not invoke its default implementation if multiple methods are overridden, and the template inheritance graph is insufficient to infer that one default implementation overrides the others. See section [x](language.html#calling-methods) for details."
+  },
+  "EAMETH": {
+    "tag_name": "EAMETH",
+    "reason_comments": "An abstract method cannot override another method."
+  },
+  "ETMETH": {
+    "tag_name": "ETMETH",
+    "reason_comments": "A shared method cannot override a non-shared method"
+  },
+  "ETEMPLATEUPCAST": {
+    "tag_name": "ETEMPLATEUPCAST",
+    "reason_comments": "When casting to a template type, the source expression must be either an object implementing the template, or an expression whose type is a subtemplate of the target type."
+  },
+  "EABSTEMPLATE": {
+    "tag_name": "EABSTEMPLATE",
+    "reason_comments": "If a template has any abstract methods or parameters, they must all be implemented when instantiating the template."
+  },
+  "EIMPORT": {
+    "tag_name": "EIMPORT",
+    "reason_comments": "The file to imported could not be found. Use the `-I` option to specify additional directories to search for imported files."
+  },
+  "ESIMAPI": {
+    "tag_name": "ESIMAPI",
+    "reason_comments": "The DML file is written in a too old version of DML. Use the `--simics-api` option to use a sufficiently old Simics API."
+  },
+  "ETYPE": {
+    "tag_name": "ETYPE",
+    "reason_comments": "The data type is not defined in the DML code."
+  },
+  "EVARTYPE": {
+    "tag_name": "EVARTYPE",
+    "reason_comments": "A variable has been declared with a given type but the type is not acceptable."
+  },
+  "ETREC": {
+    "tag_name": "ETREC",
+    "reason_comments": "The definition of a structure type can not have itself as direct or indirect member."
+  },
+  "EANONSTRUCT": {
+    "tag_name": "EANONSTRUCT",
+    "reason_comments": "Declarations of new structs are not permitted in certain contexts, such as method arguments, `new` expressions, `sizeoftype` expressions and `cast` expressions."
+  },
+  "EEMPTYSTRUCT": {
+    "tag_name": "EEMPTYSTRUCT",
+    "reason_comments": "A struct or layout type must have at least one field. This restriction does not apply to structs declared in a `extern typedef`."
+  },
+  "ECAST": {
+    "tag_name": "ECAST",
+    "reason_comments": "The cast operation was not allowed.  It is illegal to cast to void."
+  },
+  "EVOID": {
+    "tag_name": "EVOID",
+    "reason_comments": "The type `void` is not a value, and thus cannot be used as the type of e.g. a variable or struct member"
+  },
+  "ENBOOL": {
+    "tag_name": "ENBOOL",
+    "reason_comments": "Conditions must be properly boolean expressions; e.g., \"`if (i == 0)`\" is allowed, but \"`if (i)`\" is not, if `i` is an integer."
+  },
+  "EASSIGN": {
+    "tag_name": "EASSIGN",
+    "reason_comments": "The target of the assignment is not an l-value, and thus cannot be assigned to."
+  },
+  "EASTYPE": {
+    "tag_name": "EASTYPE",
+    "reason_comments": "The target of an initializer is incompatible with the type of the initializer."
+  },
+  "EINCTYPE": {
+    "tag_name": "EINCTYPE",
+    "reason_comments": "The prefix and postfix increment/decrement operators can only be used on integer and pointer expressions."
+  },
+  "EBTYPE": {
+    "tag_name": "EBTYPE",
+    "reason_comments": "An expression had the wrong type."
+  },
+  "ECSADD": {
+    "tag_name": "ECSADD",
+    "reason_comments": "Non-constant strings cannot be concatenated using `+`."
+  },
+  "EEARG": {
+    "tag_name": "EEARG",
+    "reason_comments": "Function and method arguments in declarations cannot be of endian integer type."
+  },
+  "EASSINL": {
+    "tag_name": "EASSINL",
+    "reason_comments": "The target of the assignment is a method parameter that has been given a constant or undefined value when inlining the method."
+  },
+  "EERRSTMT": {
+    "tag_name": "EERRSTMT",
+    "reason_comments": "The source code contained a statement \"`error;`\", which forces a compilation error with the given message, or the standard message \"forced compilation error in source code\"."
+  },
+  "EEXTERN": {
+    "tag_name": "EEXTERN",
+    "reason_comments": "An extern declared method must be fully typed and may not throw exceptions."
+  },
+  "EEXPORT": {
+    "tag_name": "EEXPORT",
+    "reason_comments": "Can only export non-inline, non-shared, non-throwing methods declared outside object arrays."
+  },
+  "ESTATICEXPORT": {
+    "tag_name": "ESTATICEXPORT",
+    "reason_comments": "A method reference can only be converted to a function pointer if the method is non-inline, non-shared, non-throwing, and declared outside an object array."
+  },
+  "EINVALID": {
+    "tag_name": "EINVALID",
+    "reason_comments": "The expression does not produce a proper value."
+  },
+  "EUNDEF": {
+    "tag_name": "EUNDEF",
+    "reason_comments": "Caused by an attempt to generate code for an expression that contains the `undefined` value."
+  },
+  "ESHNEG": {
+    "tag_name": "ESHNEG",
+    "reason_comments": "The right-hand side operand to a shift operator must not be negative."
+  },
+  "EDIVZ": {
+    "tag_name": "EDIVZ",
+    "reason_comments": "The right-hand side of the given / or % operator is always zero."
+  },
+  "EBINOP": {
+    "tag_name": "EBINOP",
+    "reason_comments": "One or both of the operands have the wrong type for the given binary operator."
+  },
+  "EBSLICE": {
+    "tag_name": "EBSLICE",
+    "reason_comments": "A bitslice operation was attempted on an expression that is not an integer."
+  },
+  "EBSSIZE": {
+    "tag_name": "EBSSIZE",
+    "reason_comments": "Bit slices cannot be larger than 64 bits."
+  },
+  "EBSBE": {
+    "tag_name": "EBSBE",
+    "reason_comments": "A big-endian bit slice can only be done on an expression whose type is explicitly defined, such as a local variable or a register field."
+  },
+  "EZRANGE": {
+    "tag_name": "EZRANGE",
+    "reason_comments": "An array index range must start at zero."
+  },
+  "ENARRAY": {
+    "tag_name": "ENARRAY",
+    "reason_comments": "Indexing can only be applied to arrays, integers (bit-slicing), and lists."
+  },
+  "EOOB": {
+    "tag_name": "EOOB",
+    "reason_comments": "The used index is outside the defined range."
+  },
+  "EAVAR": {
+    "tag_name": "EAVAR",
+    "reason_comments": "Indexing into constant lists can only be done with constant indexes."
+  },
+  "ENLST": {
+    "tag_name": "ENLST",
+    "reason_comments": "A list was expected."
+  },
+  "ENVAL": {
+    "tag_name": "ENVAL",
+    "reason_comments": "Only some objects can be used as values directly. An attribute can only be accessed directly as a value if it has been declared using the `allocate_type` parameter."
+  },
+  "ENORET": {
+    "tag_name": "ENORET",
+    "reason_comments": "If a method has output arguments, then control flow may not reach the end of the method. Either an explicit value must be returned in a return statement, or the execution must be aborted by an exception or assertion failure. Note that DMLC's control flow analysis is rather rudimentary, and can issue this error on code that provably will return. In this case, the error message can be silenced by adding `assert false;` to the end of the method body."
+  },
+  "EATYPE": {
+    "tag_name": "EATYPE",
+    "reason_comments": "Either the `attr_type` or the `type` parameter of the attribute must be specified."
+  },
+  "EANAME": {
+    "tag_name": "EANAME",
+    "reason_comments": "This name is not available as the name of an attribute, since it is used for an automatically added attribute."
+  },
+  "EACHK": {
+    "tag_name": "EACHK",
+    "reason_comments": "An attribute must have set and get methods to be checkpointable. This attribute has neither, and the 'configuration' parameter is either \"required\" or \"optional\"."
+  },
+  "EANULL": {
+    "tag_name": "EANULL",
+    "reason_comments": "An attribute must have a set or a get method to be useful."
+  },
+  "EREGVAL": {
+    "tag_name": "EREGVAL",
+    "reason_comments": "When a register has been specified with explicit fields, you have to use the `get` and `set` methods to access the register as a single value."
+  },
+  "ENOPTR": {
+    "tag_name": "ENOPTR",
+    "reason_comments": "A pointer value was expected."
+  },
+  "ENOSTRUCT": {
+    "tag_name": "ENOSTRUCT",
+    "reason_comments": "The left-hand side operand of the `.` operator is not of struct type."
+  },
+  "EBADFAIL": {
+    "tag_name": "EBADFAIL",
+    "reason_comments": "An exception is thrown in a context where it will not be caught."
+  },
+  "EAPPLY": {
+    "tag_name": "EAPPLY",
+    "reason_comments": "The applied value is not a function."
+  },
+  "EAPPLYMETH": {
+    "tag_name": "EAPPLYMETH",
+    "reason_comments": "Calls to inline methods, methods that may throw, or methods that have multiple output parameters cannot be used as arbitrary expressions. In DML 1.2, any such method must be called via the `call` or `inline` statements, and in DML 1.4 any such method must be called either as a standalone statement, or as an initializer (e.g., RHS of an assignment or argument of a `return` statement)."
+  },
+  "EIDENT": {
+    "tag_name": "EIDENT",
+    "reason_comments": "The identifier has not been declared anywhere."
+  },
+  "ENAMEID": {
+    "tag_name": "ENAMEID",
+    "reason_comments": "The name parameter does not follow identifier syntax."
+  },
+  "EFORMAT": {
+    "tag_name": "EFORMAT",
+    "reason_comments": "The log-statement format string is malformed."
+  },
+  "EDEVICE": {
+    "tag_name": "EDEVICE",
+    "reason_comments": "The main source file given to the DML compiler must contain a `device` declaration."
+  },
+  "ELTYPE": {
+    "tag_name": "ELTYPE",
+    "reason_comments": "Log-statement type must be one of `info`, `warning`, `error`, `spec_viol`, and `unimpl`."
+  },
+  "ELLEV": {
+    "tag_name": "ELLEV",
+    "reason_comments": "The log level given in a log statement must be an integer between 1 and 4, or 1 and 5 for a subsequent log level (`then ...`), unless the log kind is one of \"warning\", \"error\", or \"critical\", in which case it must be 1 (or 5 for subsequent log level)."
+  },
+  "ESYNTAX": {
+    "tag_name": "ESYNTAX",
+    "reason_comments": "The code is malformed."
+  },
+  "EPARAM": {
+    "tag_name": "EPARAM",
+    "reason_comments": "The parameter is not bound to a legal value."
+  },
+  "EUNINITIALIZED": {
+    "tag_name": "EUNINITIALIZED",
+    "reason_comments": "Some parameters that are automatically supplied by DML cannot be accessed in early stages of compilation, such as in object-level if statements."
+  },
+  "ECONDP": {
+    "tag_name": "ECONDP",
+    "reason_comments": "It is not permitted to declare a parameter directly inside an `if` conditional."
+  },
+  "ECONDT": {
+    "tag_name": "ECONDT",
+    "reason_comments": "It is not permitted to use a template directly inside an `if` conditional."
+  },
+  "ECONDINEACH": {
+    "tag_name": "ECONDINEACH",
+    "reason_comments": "It is not permitted to have an `in each` statement directly inside an `if` conditional."
+  },
+  "EATTRDATA": {
+    "tag_name": "EATTRDATA",
+    "reason_comments": "Specifying `allocate_type` and using 'data' declarations in the same attribute object is not allowed."
+  },
+  "ERETTYPE": {
+    "tag_name": "ERETTYPE",
+    "reason_comments": "The type of the return value (if any) must be specified for methods that implement interfaces."
+  },
+  "ERETARGNAME": {
+    "tag_name": "ERETARGNAME",
+    "reason_comments": "In DML 1.4, the output arguments of a method are anonymous"
+  },
+  "EIFREF": {
+    "tag_name": "EIFREF",
+    "reason_comments": "Interface function calls must be simple references to the method."
+  },
+  "EREF": {
+    "tag_name": "EREF",
+    "reason_comments": "The referenced object has not been declared."
+  },
+  "ENOBJ": {
+    "tag_name": "ENOBJ",
+    "reason_comments": "A reference to an object was expected."
+  },
+  "EFMTARGN": {
+    "tag_name": "EFMTARGN",
+    "reason_comments": "The log-statement has too few or too many arguments for the given format string."
+  },
+  "EASZVAR": {
+    "tag_name": "EASZVAR",
+    "reason_comments": "The size of an array must be a constant integer."
+  },
+  "EASZR": {
+    "tag_name": "EASZR",
+    "reason_comments": "An array must have at least one element."
+  },
+  "EASZLARGE": {
+    "tag_name": "EASZLARGE",
+    "reason_comments": "Object arrays with huge dimensions are not allowed; the product of dimension sizes must be smaller than 2<sup>31</sup>."
+  },
+  "EAINCOMP": {
+    "tag_name": "EAINCOMP",
+    "reason_comments": "The array has been declared more than once, in an incompatible way."
+  },
+  "EAUNKDIMSIZE": {
+    "tag_name": "EAUNKDIMSIZE",
+    "reason_comments": "The size of an array dimension of an object array must be defined at least once across all declarations of that object array."
+  },
+  "ENCONST": {
+    "tag_name": "ENCONST",
+    "reason_comments": "A constant expression was expected."
+  },
+  "ECONT": {
+    "tag_name": "ECONT",
+    "reason_comments": "A `continue` statement can only be used inside a loop construct."
+  },
+  "ECONTU": {
+    "tag_name": "ECONTU",
+    "reason_comments": "A `continue` statement cannot be used in a `#foreach` or `#select` statement."
+  },
+  "EBREAK": {
+    "tag_name": "EBREAK",
+    "reason_comments": "A `break` statement can only be used inside a loop or switch construct."
+  },
+  "ENMETH": {
+    "tag_name": "ENMETH",
+    "reason_comments": "A method name was expected. This might be caused by using `call` or `inline` on something that counts as a C function rather than a method."
+  },
+  "ENDEFAULT": {
+    "tag_name": "ENDEFAULT",
+    "reason_comments": "The default implementation of a method was invoked, but there was no default implementation."
+  },
+  "EARG": {
+    "tag_name": "EARG",
+    "reason_comments": "The number of input/output arguments given in the call differs from the method definition."
+  },
+  "ERETLVALS": {
+    "tag_name": "ERETLVALS",
+    "reason_comments": "The number of return value recipients differs from the number of values the called method returns."
+  },
+  "ERETARGS": {
+    "tag_name": "ERETARGS",
+    "reason_comments": "The number of return values in a return statement must match the number of outputs in the method."
+  },
+  "EARGD": {
+    "tag_name": "EARGD",
+    "reason_comments": "All parameter names of a method must be distinct."
+  },
+  "EARGT": {
+    "tag_name": "EARGT",
+    "reason_comments": "The data type of the argument value given for the mentioned method parameter differs from the method definition."
+  },
+  "ENARGT": {
+    "tag_name": "ENARGT",
+    "reason_comments": "Methods that are called must have data type declarations for all their parameters. (Methods that are only inlined do not need this.)"
+  },
+  "EPTYPE": {
+    "tag_name": "EPTYPE",
+    "reason_comments": "The data type of the argument value given for the mentioned method or function parameter differs from the function prototype."
+  },
+  "ENAMECOLL": {
+    "tag_name": "ENAMECOLL",
+    "reason_comments": "The name is already in use in the same scope."
+  },
+  "ENALLOW": {
+    "tag_name": "ENALLOW",
+    "reason_comments": "Many object types have limitations on the contexts in which they may appear."
+  },
+  "ENALLOC": {
+    "tag_name": "ENALLOC",
+    "reason_comments": "An object which is not allocated at run-time cannot be referenced as a run-time value."
+  },
+  "ENTMPL": {
+    "tag_name": "ENTMPL",
+    "reason_comments": "The template has not been defined."
+  },
+  "EISINTPL": {
+    "tag_name": "EISINTPL",
+    "reason_comments": "A `template` block inside a `trait` block may not contain any `is` statements on top level. Templates should be instantiated with an `is` statement in the surrounding `trait` block."
+  },
+  "EINVOVER": {
+    "tag_name": "EINVOVER",
+    "reason_comments": "Only default declarations of parameters can be overridden."
+  },
+  "ENPARAM": {
+    "tag_name": "ENPARAM",
+    "reason_comments": "The parameter has been declared, but is not assigned a value or a default value."
+  },
+  "EAUTOPARAM": {
+    "tag_name": "EAUTOPARAM",
+    "reason_comments": "Some parameters are predefined by DML, using the `auto` keyword. Such parameters may only be declared by the standard library, and they may not be overridden."
+  },
+  "ENOVERRIDE": {
+    "tag_name": "ENOVERRIDE",
+    "reason_comments": "When the `explict_param_decls` provisional feature is enabled, parameter definitions written using `=` and `default` are only accepted if the parameter has already been declared. To declare and define a new parameter not already declared, use the `:=` or `:default` syntax."
+  },
+  "EOVERRIDE": {
+    "tag_name": "EOVERRIDE",
+    "reason_comments": "When the `explict_param_decls` provisional feature is enabled, any parameter declared via `:=` or `:default` may not already have been declared. This means `:=` or `:default` syntax can't be used to override existing parameter declarations (not even those lacking a definition of the parameter.)"
+  },
+  "EVARPARAM": {
+    "tag_name": "EVARPARAM",
+    "reason_comments": "The value assigned to the parameter is not a well-defined constant."
+  },
+  "ERECPARAM": {
+    "tag_name": "ERECPARAM",
+    "reason_comments": "The value of a parameter may not reference the parameter itself, neither directly nor indirectly."
+  },
+  "EIDXVAR": {
+    "tag_name": "EIDXVAR",
+    "reason_comments": "Expressions that are evaluated statically to constants cannot have different values for different elements in a register array.  This includes, for instance, the `allocate` parameter in registers and fields, and object-level `if` statements."
+  },
+  "EINDEPENDENTVIOL": {
+    "tag_name": "EINDEPENDENTVIOL",
+    "reason_comments": "Expressions that depend on values stored in a device instance cannot be evaluated in contexts where the device instance is not available. This is within static contexts &mdash; for example when initializing typed template parameters  &mdash; or within independent methods."
+  },
+  "ETYPEDPARAMVIOL": {
+    "tag_name": "ETYPEDPARAMVIOL",
+    "reason_comments": "Independent method calls are not allowed within the definitions of typed parameters."
+  },
+  "EFARRSZ": {
+    "tag_name": "EFARRSZ",
+    "reason_comments": "The bit width must be identical across the elements of a field array."
+  },
+  "EDVAR": {
+    "tag_name": "EDVAR",
+    "reason_comments": "A local variable has more than one definition in the same code block."
+  },
+  "EDDEFMETH": {
+    "tag_name": "EDDEFMETH",
+    "reason_comments": "If a method has two default implementations, then at least one of them must be defined in a template."
+  },
+  "EDMETH": {
+    "tag_name": "EDMETH",
+    "reason_comments": "A method can only be overridden if it is declared as `default`"
+  },
+  "EMETH": {
+    "tag_name": "EMETH",
+    "reason_comments": "The default implementation is overridden by an implementation with different input/output parameters."
+  },
+  "EIMPLMEMBER": {
+    "tag_name": "EIMPLMEMBER",
+    "reason_comments": "A method in an `implement` object corresponds to a struct member that isn't a function pointer"
+  },
+  "EANONPORT": {
+    "tag_name": "EANONPORT",
+    "reason_comments": "An `implement` definition can only exist in a port or bank that has a name."
+  },
+  "EDBFUNC": {
+    "tag_name": "EDBFUNC",
+    "reason_comments": "The device contains two differently-named banks that use the same function number."
+  },
+  "EREGNSZ": {
+    "tag_name": "EREGNSZ",
+    "reason_comments": "All registers must have a specified constant size."
+  },
+  "EREGISZ": {
+    "tag_name": "EREGISZ",
+    "reason_comments": "The specified register size is not allowed. Possible values are 1-8."
+  },
+  "EREGOL": {
+    "tag_name": "EREGOL",
+    "reason_comments": "The registers are mapped to overlapping address ranges."
+  },
+  "EBITRR": {
+    "tag_name": "EBITRR",
+    "reason_comments": "The bit range of a field can only use bits present in the register."
+  },
+  "EBITRO": {
+    "tag_name": "EBITRO",
+    "reason_comments": "The fields of a register must not overlap."
+  },
+  "EBITRN": {
+    "tag_name": "EBITRN",
+    "reason_comments": "The size of the bit range must be positive. Note that the [msb:lsb] syntax requires that the most significant bit (msb) is written to the left of the colon, regardless of the actual bit numbering used."
+  },
+  "EBITO": {
+    "tag_name": "EBITO",
+    "reason_comments": "The specified bit-order is not allowed."
+  },
+  "EDEVIMP": {
+    "tag_name": "EDEVIMP",
+    "reason_comments": "Source files that are used with `import` directives may not contain `device` declarations."
+  },
+  "EIMPRET": {
+    "tag_name": "EIMPRET",
+    "reason_comments": "Methods within an `interface` declaration may have only have zero or one output parameter."
+  },
+  "ERECUR": {
+    "tag_name": "ERECUR",
+    "reason_comments": "Methods may not be inlined recursively."
+  },
+  "ECONSTP": {
+    "tag_name": "ECONSTP",
+    "reason_comments": "C function called with a pointer to a constant value for a parameter declared without const in the prototype."
+  },
+  "ECONST": {
+    "tag_name": "ECONST",
+    "reason_comments": "The lvalue that is assigned to is declared as a `const` and thus can't be assigned to."
+  },
+  "EFUNSTRUCT": {
+    "tag_name": "EFUNSTRUCT",
+    "reason_comments": "A member of a struct cannot have a function type."
+  },
+  "EFUNARRAY": {
+    "tag_name": "EFUNARRAY",
+    "reason_comments": "It is illegal to express an array type where the base type is a function type."
+  },
+  "ECONSTFUN": {
+    "tag_name": "ECONSTFUN",
+    "reason_comments": "A function type cannot be `const` qualified;"
+  },
+  "EDISCONST": {
+    "tag_name": "EDISCONST",
+    "reason_comments": "A pointer to a constant value has been assigned to a pointer to a non-constant."
+  },
+  "EFMTARGT": {
+    "tag_name": "EFMTARGT",
+    "reason_comments": "Argument type mismatch in a log-statement format string."
+  },
+  "EILLCOMP": {
+    "tag_name": "EILLCOMP",
+    "reason_comments": "The values being compared do not have matching types."
+  },
+  "EARRAY": {
+    "tag_name": "EARRAY",
+    "reason_comments": "A whole array cannot be used as a single value."
+  },
+  "EMEMBER": {
+    "tag_name": "EMEMBER",
+    "reason_comments": "Attempt to access a nonexisting member of a compound data structure."
+  },
+  "EIFTYPE": {
+    "tag_name": "EIFTYPE",
+    "reason_comments": "The interface datatype is unknown."
+  },
+  "EVERS": {
+    "tag_name": "EVERS",
+    "reason_comments": "A device declared to be written in one DML language version tried to import a file written in an incompatible language version."
+  },
+  "ELAYOUT": {
+    "tag_name": "ELAYOUT",
+    "reason_comments": "The type of a member of a `layout` declaration must be an integer or bitfield with a bit width that is a multiple of 8, or another layout."
+  },
+  "EBFLD": {
+    "tag_name": "EBFLD",
+    "reason_comments": "A `bitfield` declaration must have an integer type that matches the width of the field."
+  },
+  "EINTPTRTYPE": {
+    "tag_name": "EINTPTRTYPE",
+    "reason_comments": "Pointer types that point to integers with a bit width that is not a power of two are not allowed."
+  },
+  "ERVAL": {
+    "tag_name": "ERVAL",
+    "reason_comments": "The operand of `sizeof`, `typeof` and `&` must be a lvalue."
+  },
+  "EINC": {
+    "tag_name": "EINC",
+    "reason_comments": "An increment or decrement operation can only be performed on simple lvalues such as variables."
+  },
+  "ENTYPE": {
+    "tag_name": "ENTYPE",
+    "reason_comments": "This expression has an unknown type."
+  },
+  "EDATAINIT": {
+    "tag_name": "EDATAINIT",
+    "reason_comments": "An invalid initializer was detected. The error message provides the detailed information."
+  },
+  "ENOFILE": {
+    "tag_name": "ENOFILE",
+    "reason_comments": "The main input file could not be found."
+  },
+  "ENSHARED": {
+    "tag_name": "ENSHARED",
+    "reason_comments": "If a template provides an object that is not accessible from shared methods, such as an untyped parameter or a non-shared method, then that object's name is reserved within the scope of the shared method.  I.e., if a shared method tries to access a symbol that isn't accessible, then ENSHARED is reported, even before looking for the symbol in the global scope. Section [x](language.html#shared-methods) describes which template symbols are accessible from a shared method."
+  },
+  "ESERIALIZE": {
+    "tag_name": "ESERIALIZE",
+    "reason_comments": "Some complex types, in particular most pointer types, cannot be automatically checkpointed by DML, and are therefore disallowed in contexts such as `saved` declarations."
+  },
+  "EATTRCOLL": {
+    "tag_name": "EATTRCOLL",
+    "reason_comments": "This error is signalled if two DML declarations would result in two Simics attributes being registered with the same name.  This most commonly happens when an attribute name is a result of the object hierarchy, and there is another object named similarly. For example, if a bank contains one register named `g_r` and a group `g` containing a register named `r`."
+  },
+  "ESTOREDINLINE": {
+    "tag_name": "ESTOREDINLINE",
+    "reason_comments": "You cannot declare session or saved variables in methods marked with 'inline'"
+  },
+  "ESWITCH": {
+    "tag_name": "ESWITCH",
+    "reason_comments": "A switch statement must start with a `case` label, and there may be at most one `default` label which must appear after all `case` labels"
+  },
+  "EVLALEN": {
+    "tag_name": "EVLALEN",
+    "reason_comments": "<tt>.len</tt> cannot be used with variable-length arrays"
+  },
+  "ESAVEDCONST": {
+    "tag_name": "ESAVEDCONST",
+    "reason_comments": "Declaring a saved variable with a type that is (partially) const-qualified is not allowed, as they can be modified due to checkpoint restoration."
+  },
+  "EVLACONST": {
+    "tag_name": "EVLACONST",
+    "reason_comments": "Variable length arrays may not be declared const-qualified or with a base type that is (partially) const-qualified."
+  },
+  "EIDENTSIZEOF": {
+    "tag_name": "EIDENTSIZEOF",
+    "reason_comments": "A variant of the EIDENT message exclusive to usages of `sizeof`: it is emitted when the operand of `sizeof` makes use of an identifier which is not present in value scope, but *is* present in type scope. This likely means `sizeof` was used when `sizeoftype` was intended."
+  },
+  "ELOGGROUPS": {
+    "tag_name": "ELOGGROUPS",
+    "reason_comments": "Too many log groups were declared. A device may have a maximum of 63 `loggroup` declarations (61 excluding the built-in `Register_Read` and `Register_Write` loggroups)."
+  },
+  "ENOPROV": {
+    "tag_name": "ENOPROV",
+    "reason_comments": "An invalid identifier was passed in the `provisional` statement."
+  },
+  "ETQMIC": {
+    "tag_name": "ETQMIC",
+    "reason_comments": "A template-qualified method implementation call can only be done if the specified template is actually instantiated by the object."
+  },
+  "EAMBTQMIC": {
+    "tag_name": "EAMBTQMIC",
+    "reason_comments": "A template-qualified method implementation call was made, when the template inheritance graph for specified template is insufficient to infer that one implementation overrides the others. To resolve this, the template-qualified method implementation call should instead be qualified with the specific ancestor template that has the desired implementation."
+  },
+  "EMEMBERTQMIC": {
+    "tag_name": "EMEMBERTQMIC",
+    "reason_comments": "A template-qualified method implementation call can only be done if the specified template actually does provide or inherit an implementation of the named method for the object instantiating the template. That the template provides or inherits an abstract declaration of the method is not sufficient.  Apart from more mundane causes (e.g. misspellings), this error could happen if all implementations that the specified template may provide/inherit end up not being provided to the object instantiating the template, due to every implementation being eliminated by an `#if` statement."
+  },
+  "ENSHAREDTQMIC": {
+    "tag_name": "ENSHAREDTQMIC",
+    "reason_comments": "<a id=\"ENSHAREDTQMIC\"/> A template-qualified method implementation call via a value of template type, including when `this.templates` is used within the body of a `shared` method, can only be done if the specified template provides or inherits a `shared` implementation of the specified method. If an implementation is never provided or inherited by the template, or the template provides or inherits a non-`shared` implementation, then the call can't be made.  For example, the following is permitted: ``` template t { shared method m(); }  template u is t { shared method m() default { log info: \"implementation from 'u'\"; } }  template v is t { shared method m() default { log info: \"implementation from 'v'\"; } }  template uv is (u, v) { shared method m() { // 'this' is a value of the template type 'uv' this.templates.u.m(); // Equivalent to 'this.templates.v.m()' templates.v.m(); } } ```  But the following is not: ``` template t { shared method m(); }  template u is t { shared method m() default { log info: \"implementation from 'u'\"; } }  template v is t { method m() default { log info: \"implementation from 'v'\"; } }  template uv is (u, v) { // Indirection as a shared implementation is not allowed to override a // non-shared implementation, but even if it were... method m() { m_impl(); }  shared method m_impl() { this.templates.u.m(); // This is rejected because the implementation of 'm' provided by // 'v' is not shared. this.templates.v.m(); } } ```  As a result, resolving a conflict between a non-`shared` method implementation and a `shared` method implementation can typically only be done by having most parts of the overriding implementation be non-`shared`: ``` template uv is (u, v) { method m() { // OK; 'this' is a compile-time reference to the object // instantiating the template rather than a value of template type. this.templates.u.m(); this.templates.v.m(); } } ```  Alternatively, a new `shared` method with non-`shared` implementation can be declared to allow access to the specific non-`shared` implementation needed (at the cost of increasing the memory overhead needed for the template type): ``` template uv is (u, v) { method m() { m_impl(); }  shared method m_impl_by_v(); method m_impl_by_v() { this.templates.v.m(); }  shared method m_impl() { this.templates.u.m(); // OK m_impl_by_v(); } } ```"
+  },
+  "ETTQMIC": {
+    "tag_name": "ETTQMIC",
+    "reason_comments": "A template-qualified method implementation call via a value of template type, including when `this.templates` is used within the body of a `shared` method, can only be done if the specified template is an ancestor template of the template type, the `object` template type, or the template type itself."
+  },
+  "EEXTERNINCOMP": {
+    "tag_name": "EEXTERNINCOMP",
+    "reason_comments": "Multiple `extern` declarations with mismatching types are given for the same identifier."
+  },
+  "EPRAGMA": {
+    "tag_name": "EPRAGMA",
+    "reason_comments": "An unknown pragma was specified"
+  },
+  "EOLDVECT": {
+    "tag_name": "EOLDVECT",
+    "reason_comments": "`vect` types are only permitted if the [`simics_util_vect` provisional feature](provisional-auto.html#simics_util_vect) is enabled."
+  }
+}

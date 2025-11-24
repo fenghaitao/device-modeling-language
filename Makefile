@@ -95,7 +95,8 @@ all: $(DMLC_BIN)					\
      $(BSD0_LICENSES)					\
      $(MPL_LICENSE)					\
      $(PYUNIT_TESTED)					\
-     $(PARSER_DEBUGFILES)
+     $(PARSER_DEBUGFILES) \
+     $(PYTHONPATH)/dml/dmlc_error_suggestions.json
 
 EXE_SUFFIX := $(if $(findstring win,$(HOST_TYPE)),.exe,)
 DMLC_CMD := $(PYTHON) $(PYTHONPATH)/__main__.py
@@ -249,3 +250,7 @@ $(DOC_MARKER_12): $(DOC_FILES_12)
 	$(DODOC) --css simics.css $(SIMICS_BASE)/src/docs/dodoc -o $(DOC_DEST_12) $(DOC_SRC_DIR_12) generated-md-1.2
 
 all: $(DOC_MARKER_12)
+
+$(PYTHONPATH)/dml/dmlc_error_suggestions.json: $(DMLC_DIR)/py/dml/dmlc_error_suggestions.json | $(PYTHONPATH)
+	$(info Copying dmlc_error_suggestions.json)
+	cp $< $@
