@@ -3,4 +3,7 @@
 .gitignore
 .potpieignore
 .repowiki/
+.deepwiki-open/
+.deepwiki/
+.qoder/
 test/
