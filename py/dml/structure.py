@@ -32,7 +32,7 @@ from .template import Rank, RankDesc, ObjectSpec, InstantiatedTemplateSpec
 from .reginfo import explode_registers
 from . import dmlparse
 from .set import Set
-from . import compat
+from . import breaking_changes
 from .slotsmeta import auto_init
 from . import provisional
 
@@ -85,7 +85,7 @@ def mkglobals(stmts):
 
     for name in by_name:
         clash = by_name[name]
-        if len(clash) > 1 and compat.dml12_misc in dml.globals.enabled_compat:
+        if len(clash) > 1 and not breaking_changes.dml12_remove_misc_quirks.enabled:
             # DML 1.2 permits multiple redundant 'extern foo;'
             # declarations; drop these
             for stmt in redundant_externs(clash):
@@ -178,7 +178,7 @@ def mkglobals(stmts):
                 if typ is None:
                     # guaranteed by grammar
                     assert dml.globals.dml_version == (1, 2)
-                    if (compat.dml12_misc not in dml.globals.enabled_compat
+                    if (breaking_changes.dml12_remove_misc_quirks.enabled
                         and not site.filename().endswith('simics-api.dml')):
                         report(EEXTERN(stmt.site))
                     typ = TUnknown()
@@ -247,7 +247,7 @@ def mkglobals(stmts):
     global_anonymous_structs.clear()
     global_anonymous_structs.update(anonymous_structs)
 
-    if compat.broken_unused_types not in dml.globals.enabled_compat:
+    if breaking_changes.forbid_broken_unused_types.enabled:
         for t in typedefs.values():
             try:
                 check_named_types(t)
@@ -271,7 +271,7 @@ def mkglobals(stmts):
                 report(e)
 
     for t in dml.globals.traits.values():
-        t.typecheck_methods()
+        t.typecheck_members()
 
     # Resolve duplicate externs
     for (name, clashes) in extern_clashes.items():
@@ -325,7 +325,7 @@ def type_deps(t, include_structs, expanded_typedefs):
         deps = []
         if include_structs:
             deps.append(t.label)
-        for (mn, mt) in t.members.items():
+        for (_, mt) in t.members:
             deps.extend(type_deps(mt, True, expanded_typedefs))
         return deps
     elif isinstance(t, TArray):
@@ -461,55 +461,61 @@ def check_unused_and_warn(node):
     for n in node.get_components():
         check_unused_and_warn(n)
 
-def wrap_sites(spec, issite, tname):
-    '''Instantiate a template, by traversing it and replacing sites, and
-       return corresponding arguments for the construction of an ObjectSpec'''
-    templates = [(TemplateSite(site, issite, tname), t)
+def wrap_sites(site_constructor, spec, issite, *rest):
+    '''Instantiate a template, or the body of an 'in each', or whatever
+    site_constructor represents, by traversing it and replacing sites, and
+    return corresponding arguments for the construction of an ObjectSpec'''
+    templates = [(site_constructor(site, issite, *rest), t)
                  for (site, t) in spec.templates]
-    params = [ast.param(TemplateSite(site, issite, tname),
+    params = [ast.param(site_constructor(site, issite, *rest),
                         name, typeinfo, is_default, value)
               for (_, site, name, typeinfo, is_default, value)
               in spec.params]
 
     blocks = []
-    for (preconds, shallow, composite) in spec.blocks:
+    for (preconds, shallow, composite, in_eachs) in spec.blocks:
         shallow_wrapped = []
         for stmt in shallow:
             asttype = stmt.kind
             if asttype == 'method':
-                (_, site, name, value, overridable, export, rsite) = stmt
+                (_, site, name, value, overridable, explicit_decl, export,
+                 rsite) = stmt
                 shallow_wrapped.append(ast.method(
-                    TemplateSite(site, issite, tname), name, value,
-                    overridable, export, rsite))
+                    site_constructor(site, issite, *rest), name, value,
+                    overridable, explicit_decl, export, rsite))
             elif asttype == 'error':
                 (_, site, msg) = stmt
                 shallow_wrapped.append(
-                    ast.error(TemplateSite(site, issite, tname), msg))
+                    ast.error(site_constructor(site, issite, *rest), msg))
             elif asttype == 'session':
                 (_, site, decls, inits) = stmt
                 shallow_wrapped.append(
-                    ast.session(TemplateSite(site, issite, tname),
+                    ast.session(site_constructor(site, issite, *rest),
                                 decls, inits))
             elif asttype == 'saved':
                 (_, site, decls, inits) = stmt
                 shallow_wrapped.append(
-                    ast.saved(TemplateSite(site, issite, tname),
+                    ast.saved(site_constructor(site, issite, *rest),
                               decls, inits))
             elif asttype == 'hook':
-                (_, site, *rest) = stmt
+                (_, site, *args) = stmt
                 shallow_wrapped.append(
-                    ast.hook(TemplateSite(site, issite, tname),
-                             *rest))
+                    ast.hook(site_constructor(site, issite, *rest),
+                             *args))
             else:
                 raise ICE(issite, 'unknown node type %r %r' % (asttype, stmt))
         composite_wrapped = [
-            (objtype, name, arrayinfo,
-             ObjectSpec(*wrap_sites(spec, issite, tname)))
-            for (objtype, name, arrayinfo, spec) in composite]
-        blocks.append((preconds, shallow_wrapped, composite_wrapped))
+            (objtype, name, arrayinfo, is_extension,
+             ObjectSpec(*wrap_sites(site_constructor, spec, issite, *rest)))
+            for (objtype, name, arrayinfo, is_extension, spec) in composite]
+        in_eachs_wrapped = [(tgt_pred, ObjectSpec(
+            *wrap_sites(site_constructor, spec, issite, *rest)))
+                            for (tgt_pred, spec) in in_eachs]
+        blocks.append((preconds, shallow_wrapped, composite_wrapped,
+                       in_eachs_wrapped))
 
-    return (TemplateSite(spec.site, issite, tname), spec.rank,
-            templates, spec.in_eachs, params, blocks)
+    return (site_constructor(spec.site, issite, *rest), spec.rank,
+            templates, params, blocks)
 
 def setparam(node, name, mkexpr):
     """
@@ -532,12 +538,12 @@ def add_templates(obj_specs, each_stmts):
         i += 1
         if (tpl.name in dml.globals.missing_templates
             and (
-                # SIMICS-22403: dml12_misc makes DML *less* strict,
-                # which is a bug, and we use a compat feature to
+                # SIMICS-22403: dml12_remove_misc_quirks makes DML *less* strict,
+                # which is a bug, and we use a breaking change to
                 # gradually fix that bug. We also preserve the
                 # stricter checking in 1.2, because that doesn't hurt.
-                compat.broken_conditional_is not in dml.globals.enabled_compat
-                or compat.dml12_misc in dml.globals.enabled_compat)):
+                breaking_changes.forbid_broken_conditional_is.enabled
+                or not breaking_changes.dml12_remove_misc_quirks.enabled)):
             report(ENTMPL(site, tpl.name))
             continue
         if tpl in used_templates:
@@ -547,10 +553,10 @@ def add_templates(obj_specs, each_stmts):
             obj_spec = tpl.spec
         else:
             obj_spec = InstantiatedTemplateSpec(
-                tpl, *wrap_sites(tpl.spec, site, tpl.name))
+                tpl, *wrap_sites(TemplateSite, tpl.spec, site, tpl.name))
         used_templates[tpl] = obj_spec
 
-        for (tpls, spec) in each_stmts.get(tpl, []):
+        for (tpls, orig_tpls, spec) in each_stmts.get(tpl, []):
             for t in tpls:
                 if t not in used_templates:
                     # One template did not match, at least not yet. It
@@ -559,12 +565,14 @@ def add_templates(obj_specs, each_stmts):
                     # each_stmts so we will re-consider this in-each
                     # statement when the missing template is instantiated.
                     each_stmts = each_stmts.copy()
-                    each_stmts[t] = each_stmts.get(t, []) + [(tpls, spec)]
+                    each_stmts[t] = (each_stmts.get(t, [])
+                                     + [(tpls, orig_tpls, spec)])
                     break
             else:
                 # All templates match; expand the each statement.
                 obj_specs.append(
-                    ObjectSpec(*wrap_sites(spec, spec.site, tpl.name)))
+                    ObjectSpec(*wrap_sites(InEachSite, spec, spec.site,
+                                           [t.name for t in orig_tpls])))
                 queue.extend(spec.templates)
 
         obj_specs.append(obj_spec)
@@ -676,14 +684,14 @@ def merge_parameters(params, obj_specs):
             if not declared_as_override and parent_ranks:
                 [parent, *_] = (parent for (parent_rank, parent) in params
                                 if parent_rank in parent_ranks)
-                report(EOVERRIDE(type_info.site, parent.site, name,
-                                 'default' if is_default else '='))
+                report(EOVERRIDEPARAM(type_info.site, parent.site, name,
+                                      'default' if is_default else '='))
             if not declared_as_override and rank in decls:
-                report(EOVERRIDE(type_info.site, decls[rank].site, name,
-                                 'default' if is_default else '='))
+                report(EOVERRIDEPARAM(type_info.site, decls[rank].site, name,
+                                      'default' if is_default else '='))
             elif (not parent_ranks and declared_as_override
                   and rank not in decls):
-                report(ENOVERRIDE(
+                report(ENOVERRIDEPARAM(
                     p.site, name, 'default' if is_default else '='))
 
     [(rank0, param0)] = superior
@@ -711,9 +719,9 @@ def merge_parameters(params, obj_specs):
 def typecheck_method_override(m1, m2, location):
     '''check that m1 can override m2'''
     assert m1.kind == m2.kind == 'method'
-    (_, (inp1, outp1, throws1, qualifiers1, _), _, _, _) \
+    (_, (inp1, outp1, throws1, qualifiers1, _), _, _, _, _) \
         = m1.args
-    (_, (inp2, outp2, throws2, qualifiers2, _), _, _, _) \
+    (_, (inp2, outp2, throws2, qualifiers2, _), _, _, _, _) \
         = m2.args
     (independent1, startup1, memoized1) = ('independent' in qualifiers1,
                                            'startup' in qualifiers1,
@@ -727,7 +735,7 @@ def typecheck_method_override(m1, m2, location):
         raise EMETH(m1.site, m2.site, "different number of input parameters")
     if len(outp1) != len(outp2):
         raise EMETH(m1.site, m2.site, "different number of output parameters")
-    for (a1, a2) in zip(inp1, inp2):
+    for (idx, (a1, a2)) in enumerate(zip(inp1, inp2)):
         ((n1, t1), (n2, t2)) = (a1.args, a2.args)
         if (t1 is None) != (t2 is None):
             if dml.globals.dml_version == (1, 2):
@@ -741,7 +749,10 @@ def typecheck_method_override(m1, m2, location):
                         # parameter
                         pass
                     else:
-                        report(PINARGTYPE(a1.site, type2.declaration(n1)))
+                        # Not that we really EXPECT the discard identifier here
+                        ident = n1.args[0] if n1.kind == 'variable' else '_'
+
+                        report(PINARGTYPE(a1.site, type2.declaration(ident)))
             else:
                 raise EMETH(m1.site, m2.site, "different inline args")
         if (t1 and t2
@@ -754,11 +765,13 @@ def typecheck_method_override(m1, m2, location):
             type2 = safe_realtype_unconst(type2)
 
             ok = (type1.eq_fuzzy(type2)
-                  if compat.lenient_typechecking in dml.globals.enabled_compat
+                  if not breaking_changes.strict_typechecking.enabled
                   else type1.eq(type2))
             if not ok:
+                ref = f"'{n1.args[0]}'" if n1.kind == 'variable' else (idx + 1)
+
                 raise EMETH(a1.site, a2.site,
-                            f"mismatching types in input argument {n1}")
+                            f"mismatching types in input argument {ref}")
 
     for (i, (a1, a2)) in enumerate(zip(outp1, outp2)):
         if a1.site.dml_version() != (1, 2) and a2.site.dml_version() != (1, 2):
@@ -768,7 +781,7 @@ def typecheck_method_override(m1, m2, location):
             type1 = safe_realtype_unconst(type1)
             type2 = safe_realtype_unconst(type2)
             ok = (type1.eq_fuzzy(type2)
-                  if compat.lenient_typechecking in dml.globals.enabled_compat
+                  if not breaking_changes.strict_typechecking.enabled
                   else type1.eq(type2))
             if not ok:
                 msg = "mismatching types in return value"
@@ -783,14 +796,10 @@ def typecheck_method_override(m1, m2, location):
         report(PINARGTYPE(m1.site, 'method'))
 
     def qualifier_check(qualifier_name, qualifier1, qualifier2):
-        if qualifier1 > qualifier2:
+        if qualifier1 != qualifier2:
             raise EMETH(m1.site, m2.site,
-                        (f"overriding method is declared {qualifier_name}, "
-                         + "but the overridden method is not"))
-        elif qualifier1 < qualifier2:
-            raise EMETH(m1.site, m2.site,
-                        (f"overridden method is declared {qualifier_name}, "
-                         + "but the overriding method is not"))
+                        (f"one declaration is qualified as {qualifier_name}, "
+                         + "but the other is not"))
 
     qualifier_check('independent', independent1, independent2)
     qualifier_check('startup', startup1, startup2)
@@ -810,59 +819,84 @@ def report_poverride(sup, inf, obj_specs):
         else:
             report(POVERRIDE_IMPORT(sup_obj.site, inf.desc.text))
 
-def sort_method_implementations(implementations, obj_specs):
-    if dml.globals.dml_version == (1, 2) and len(implementations) == 2:
-        # Backward compatibility: If there is exactly one default and
-        # one non-default implementation, then disregard template
-        # instantiation relations.
-        [m1, m2] = implementations
-        # create fake ranks to make sure methods end up in the right order
-        if m1.overridable and not m2.overridable:
-            if logging.show_porting:
-                report_poverride(m2.obj_spec.rank, m1.obj_spec.rank, obj_specs)
-            m2.rank = Rank({m1.rank}, m2.rank.desc)
-        elif not m1.overridable and m2.overridable:
-            if logging.show_porting:
-                report_poverride(m1.rank, m2.rank, obj_specs)
-            m1.rank = Rank({m2.rank}, m1.rank.desc)
-    return traits.sort_method_implementations(implementations)
+def merge_subobj_defs(name, defs, parent):
+    specs = [spec for (_, _, _, spec) in defs]
+    (objtype, arrayinfo, _, _) = defs[0]
+    for (ot, ai, _, spec) in defs[1:]:
+        if ot != objtype:
+            report(ENAMECOLL(specs[0].site, spec.site, name))
+            return merge_subobj_defs(name, defs[1:], parent)
+        if len(ai) != len(arrayinfo):
+            raise EAINCOMP(specs[0].site, spec.site, name,
+                           "mixing declarations with different number "
+                           "of array dimensions")
 
-def merge_subobj_defs(def1, def2, parent):
-    (objtype, name, arrayinfo, obj_specs1) = def1
-    (objtype2, name2, arrayinfo2, obj_specs2) = def2
-    assert name == name2
+    # None -> dual extension and decl
+    # True -> extension
+    # False -> explicit decl
+    if all(extension_status is True for (_, _, extension_status, _) in defs):
+        for spec in specs:
+            report(EEXTENSION(spec.site, name))
 
-    site1 = obj_specs1[0].site
-    site2 = obj_specs2[0].site
-
-    if objtype != objtype2:
-        report(ENAMECOLL(site1, site2, name))
-        return def1
-
-    if len(arrayinfo) != len(arrayinfo2):
-        raise EAINCOMP(site1, site2, name,
-                       "mixing declarations with different number "
-                       "of array dimensions")
+    explicit_decls = [
+        spec for (_, _, extension_status, spec) in defs if extension_status is False]
+    if len(explicit_decls) > 1:
+        # Report error on all declarations except one, which is
+        # printed as context. Pick the first declaration as context,
+        # unless some other declaration has strictly lower rank.
+        lowest = explicit_decls[0]
+        for other in explicit_decls[1:]:
+            if other.rank in lowest.rank.inferior:
+                lowest = other
+        for decl in explicit_decls:
+            if decl is not lowest:
+                report(EMULTIOBJDECL(decl.site, lowest.site, objtype, name))
 
     merged_arrayinfo = []
     if arrayinfo:
         parent_scope = Location(parent, static_indices(parent))
+        for (dim_i, dim) in enumerate(
+                zip(*(arrayinfo for (_, arrayinfo, _, _) in defs))):
+            (idxvar_asts, len_asts) = zip(*dim)
 
-        for ((idxvar1, len1), (idxvar2, len2)) in zip(arrayinfo, arrayinfo2):
-            if idxvar1 != idxvar2:
-                raise EAINCOMP(site1, site2, name,
-                               "mismatching index variables")
-
-            if len1 is None:
-                merged_arrayinfo.append((idxvar1, len2))
-            elif len2 is not None and (eval_arraylen(len1, parent_scope)
-                                       != eval_arraylen(len2, parent_scope)):
-                raise EAINCOMP(site1, site2, name, "mismatching array sizes")
+            candidates = {}
+            for idxvar_ast in idxvar_asts:
+                if idxvar_ast.kind != 'discard':
+                    assert idxvar_ast.kind == 'variable', idxvar_ast
+                    [idxvar] = idxvar_ast.args
+                    candidates.setdefault(idxvar, []).append(idxvar_ast)
+            if len(candidates) == 0:
+                idxvar = None
             else:
-                merged_arrayinfo.append((idxvar1, len1))
+                [(idxvar, first_asts), *rest] = candidates.items()
+                for (_, conflicting_asts) in rest:
+                    for ast in conflicting_asts:
+                        report(EAINCOMP(
+                            ast.site, first_asts[0].site, name,
+                            "mismatching index variables"))
 
+            candidates = {}
+            for len_ast in len_asts:
+                if len_ast is not None:
+                    length = eval_arraylen(len_ast, parent_scope)
+                    candidates.setdefault(length, []).append(len_ast)
+            if len(candidates) == 0:
+                idxref = (f" (with index variable '{idxvar}')"
+                          if idxvar else "")
+                report(EAUNKDIMSIZE(specs[0].site, dim_i, idxref))
+                length = 1
+                lensite = specs[0].site
+            else:
+                [(length, asts), *rest] = candidates.items()
+                lensite = asts[0].site
+                for (_, asts) in rest:
+                    for ast in asts:
+                        report(EAINCOMP(ast.site, lensite, name,
+                                        "mismatching array sizes"))
 
-    return (objtype, name, merged_arrayinfo, obj_specs1 + obj_specs2)
+            merged_arrayinfo.append((idxvar, length, lensite))
+
+    return (objtype, name, merged_arrayinfo, [spec for (_, _, _, spec) in defs])
 
 def method_is_std(node, methname):
     """
@@ -1012,10 +1046,10 @@ def mkobj(ident, objtype, arrayinfo, obj_specs, parent, each_stmts):
     # rank, so that's a relevant site to pick.
     site = obj_specs[0].site
 
-    (index_vars, arraylen_asts) = list(zip(*arrayinfo)) or ((), ())
+    (index_vars, arraylens, index_sites) = list(zip(*arrayinfo)) or ((), (), ())
 
     obj = create_object(site, ident, objtype, parent,
-                        arraylen_asts, index_vars)
+                        arraylens, index_vars)
     num_elems = functools.reduce(operator.mul, obj.dimsizes, 1)
     if num_elems >= 1 << 31:
         raise EASZLARGE(site, num_elems)
@@ -1023,52 +1057,47 @@ def mkobj(ident, objtype, arrayinfo, obj_specs, parent, each_stmts):
     with ErrorContext(obj):
         (obj_specs, used_templates) = add_templates(obj_specs, each_stmts)
         obj.templates = used_templates
-        index_sites = [ast.site for ast in arraylen_asts]
         obj_params = create_parameters(obj, obj_specs, index_vars, index_sites)
         return mkobj2(obj, obj_specs, obj_params, each_stmts)
 
 def create_object(site, ident, objtype, parent,
-                  arraylen_asts, index_vars):
-    array_lens = tuple(
-        eval_arraylen(len_ast, Location(parent, static_indices(parent)))
-        for len_ast in arraylen_asts)
-
+                  arraylens, index_vars):
     if objtype == 'device':
-        assert not arraylen_asts
+        assert not arraylens
         return objects.Device(ident, site)
     elif objtype == 'bank':
         if (ident is None
-            and compat.dml12_misc not in dml.globals.enabled_compat):
+            and breaking_changes.dml12_remove_misc_quirks.enabled):
             report(ESYNTAX(site, 'bank', 'anonymous banks are not allowed'))
-        return objects.Bank(ident, site, parent, array_lens, index_vars)
+        return objects.Bank(ident, site, parent, arraylens, index_vars)
     elif objtype == 'group':
-        return objects.Group(ident, site, parent, array_lens, index_vars)
+        return objects.Group(ident, site, parent, arraylens, index_vars)
     elif objtype == 'register':
         return objects.Register(ident, site, parent,
-                                array_lens, index_vars)
+                                arraylens, index_vars)
     elif objtype == 'field':
-        return objects.Field(ident, site, parent, array_lens, index_vars)
+        return objects.Field(ident, site, parent, arraylens, index_vars)
     elif objtype == 'connect':
         return objects.Connection(ident, site, parent,
-                                  array_lens, index_vars)
+                                  arraylens, index_vars)
     elif objtype == 'interface':
-        assert not arraylen_asts
+        assert not arraylens
         return objects.Interface(ident, site, parent)
     elif objtype == 'attribute':
-        return objects.Attribute(ident, site, parent, array_lens, index_vars)
+        return objects.Attribute(ident, site, parent, arraylens, index_vars)
     elif objtype == 'event':
-        return objects.Event(ident, site, parent, array_lens, index_vars)
+        return objects.Event(ident, site, parent, arraylens, index_vars)
     elif objtype == 'port':
-        return objects.Port(ident, site, parent, array_lens, index_vars)
+        return objects.Port(ident, site, parent, arraylens, index_vars)
     elif objtype == 'subdevice':
-        return objects.Subdevice(ident, site, parent, array_lens, index_vars)
+        return objects.Subdevice(ident, site, parent, arraylens, index_vars)
     elif objtype == 'implement':
-        assert not arraylen_asts
+        assert not arraylens
         return objects.Implement(ident, site, parent)
 
     raise ICE(site, "unknown object type %s" % (objtype,))
 
-def make_autoparams(obj, index_vars, index_var_sites):
+def make_autoparams(obj, index_vars, index_sites):
     site = obj.site
 
     autoparams = {}
@@ -1083,14 +1112,15 @@ def make_autoparams(obj, index_vars, index_var_sites):
 
     index_params = ()
     # Handle array information
-    for (dim, (index_var, var_site)) in enumerate(
-            zip(index_vars, index_var_sites)):
-        idx_param = IndexParamExpr(var_site, obj.parent.dimensions + dim,
-                                   index_var)
-        index_params += (idx_param,)
-        # This will refer to the index coupled with the idxvar,
-        # innermost overrides
-        autoparams[index_var] = idx_param
+    for (dim, (index_var, isite)) in enumerate(zip(index_vars, index_sites)):
+        index_param = IndexParamExpr(isite,
+                                     obj.parent.dimensions + dim,
+                                     index_var)
+        index_params += (index_param,)
+        if index_var is not None:
+            # This will refer to the index coupled with the idxvar,
+            # innermost overrides
+            autoparams[index_var] = index_param
 
     # Assign auto parameters related to array info
     # In 1.4; The 'indices' auto-param is a list containing local indices
@@ -1101,14 +1131,17 @@ def make_autoparams(obj, index_vars, index_var_sites):
     #         local index is stored in if in a simple array, undefined otherwise
     if dml.globals.dml_version == (1, 2):
         if len(index_vars) == 1:
-            [index_var] = index_vars
+            ([index_var], [index_param], [index_site]) = (
+                index_vars, index_params, index_sites)
             # TODO: Add this documentation to dml.docu
             # If in a multi-dimensional array, this will be set to undefined
             # So in 1.2 you can verify if you are in a multi-dimensional
             # array by checking if this is defined
             autoparams['indexvar'] = SimpleParamExpr(
-                mkStringConstant(site, index_var))
-            autoparams['index'] = autoparams[index_var]
+                mkStringConstant(
+                    # TODO or maybe 'i'?
+                    index_site, '' if index_var is None else index_var))
+            autoparams['index'] = index_param
         elif index_vars:
             autoparams['indexvar'] = SimpleParamExpr(mkUndefined(site))
             autoparams['index'] = IndexListParamExpr(site, index_params)
@@ -1129,9 +1162,9 @@ def make_autoparams(obj, index_vars, index_var_sites):
                 mkBoolConstant(site, site.bitorder() == 'be'))
         autoparams['simics_api_version'] = SimpleParamExpr(
             mkStringConstant(site, dml.globals.api_version.str))
-        for (tag, feature) in compat.features.items():
-            autoparams[f'_compat_{tag}'] = SimpleParamExpr(
-                mkBoolConstant(site, feature in dml.globals.enabled_compat))
+        for change in breaking_changes.changes.values():
+            autoparams[f'_breaking_change_{change.ident()}'] = SimpleParamExpr(
+                mkBoolConstant(site, change.enabled))
         dml.globals.device = obj
 
     elif obj.objtype == 'bank':
@@ -1196,14 +1229,15 @@ def make_autoparams(obj, index_vars, index_var_sites):
 
     return autoparams
 
-def implicit_params(obj, index_vars):
-    # Find index_vars collisions here
-    sorted_ivars = sorted(index_vars)
-    for v1, v2 in zip(sorted_ivars, sorted_ivars[1:]):
-        if v1 == v2:
-            report(ENAMECOLL(obj.site, obj.site, v1))
-    params = [ast.param(obj.site, var, ast.auto(obj.site), False, None)
-              for var in index_vars]
+def implicit_params(obj, index_vars, index_sites):
+    # Find index_vars collisions
+    ivar_sites = {}
+    for (var, site) in zip(index_vars, index_sites):
+        if var in ivar_sites and var is not None:
+            report(ENAMECOLL(ivar_sites[var], site, var))
+        ivar_sites[var] = site
+    params = [ast.param(site, var, ast.auto(site), False, None)
+              for (var, site) in zip(index_vars, index_sites) if var is not None]
 
     if (dml.globals.dml_version == (1, 2)
         and obj.objtype == 'field'
@@ -1227,7 +1261,7 @@ def create_parameters(obj, obj_specs, index_vars, index_sites):
                                          '<implicit parameter block>'))
     # map parameter name -> list of (Rank, ast.param object)
     parameters = {param.args[0]: [(implicit_rank, param)]
-                  for param in implicit_params(obj, index_vars)}
+                  for param in implicit_params(obj, index_vars, index_sites)}
     for obj_spec in obj_specs:
         for s in obj_spec.params:
             assert s.kind == 'param'
@@ -1378,6 +1412,9 @@ def report_pbefaft(obj, method_asts):
                         # find name of 'value' arg
                         (_, _, _, value_cdecl) = bef_inp
                         (value_arg, _) = value_cdecl.args
+                        assert value_arg.kind == 'variable'
+                        (value_arg,) = value_arg.args
+
                         method_decl = method_decl.replace('value', value_arg)
                         default_call = default_call.replace('value', value_arg)
                     report(PBEFAFT(bef.site, dmlparse.start_site(bef_body.site),
@@ -1414,59 +1451,155 @@ def wrap_method_body_in_try(site, overridden_site, obj, name, body,
 class ObjMethodHandle(traits.MethodHandle):
     shared = False
     def __init__(self, method_ast, obj_spec):
-        (name, (_, _, throws, _, _), overridable, _, _) = method_ast.args
+        (name, (inp, outp, throws, qualifiers, body), overridable,
+          _extern, explicit_decl, _rbrace_site) = method_ast.args
         super(ObjMethodHandle, self).__init__(
-            method_ast.site, name, obj_spec, overridable)
+            method_ast.site, name, obj_spec, overridable, body is None,
+            explicit_decl, inp, outp, throws, 'independent' in qualifiers,
+            'startup' in qualifiers, 'memoized' in qualifiers)
         self.method_ast = method_ast
-        self.throws = throws
 
 class TraitMethodHandle(traits.MethodHandle):
     shared = True
     def __init__(self, trait_method, obj_spec):
         super(TraitMethodHandle, self).__init__(
-            trait_method.site, trait_method.name,
-            obj_spec, trait_method.overridable)
+            trait_method.site, trait_method.name, obj_spec,
+            trait_method.overridable, False, None, trait_method.inp,
+            trait_method.outp, trait_method.throws, trait_method.independent,
+            trait_method.startup, trait_method.memoized)
         self.trait_method = trait_method
-        self.throws = trait_method.throws
 
-def process_method_implementations(obj, name, implementations,
-                                   shared_impl_traits, obj_specs,
-                                   vtable_nothrow_dml14):
-    # A method can have both shared and non-shared implementations.
+class AbstractTraitMethodHandle(traits.MethodHandle):
+    shared = True
+    def __init__(self, name, vtable_trait):
+        (site, *sig) = vtable_trait.vtable_methods[name]
+        obj_spec = dml.globals.templates[vtable_trait.name].spec
+        super(AbstractTraitMethodHandle, self).__init__(
+            site, name, obj_spec, True, True, None, *sig)
+
+def process_method_declarations(obj, name, declarations,
+                                shared_impl_traits, shared_absdecl_traits,
+                                obj_specs, vtable_nothrow_dml14):
+    # A method can have both shared and non-shared declarations.
     # We will create a MethodHandle object for either, which
     # sort_method_implementations() uses to resolve override order.
     unshared_methods = [
         ObjMethodHandle(method_ast, obj_spec)
-        for (obj_spec, method_ast) in implementations]
+        for (obj_spec, method_ast) in declarations]
     shared_methods = [
         TraitMethodHandle(
             impl_trait.method_impls[name],
             dml.globals.templates[impl_trait.name].spec)
         for impl_trait in shared_impl_traits]
+    shared_abstract_methods = [
+        AbstractTraitMethodHandle(name, vtable_trait)
+        for vtable_trait in shared_absdecl_traits]
 
-    (default_map, method_order) = sort_method_implementations(
-        unshared_methods + shared_methods, obj_specs)
+    methods = unshared_methods + shared_methods + shared_abstract_methods
+    impls = [meth for meth in methods if not meth.abstract]
+
+    if dml.globals.dml_version == (1, 2) and len(impls) == 2:
+        # Backward compatibility: If there is exactly one default and
+        # one non-default implementation, then disregard template
+        # instantiation relations.
+        [m1, m2] = impls
+        # create fake ranks to make sure methods end up in the right order
+        if m1.overridable and not m2.overridable:
+            if logging.show_porting:
+                report_poverride(m2.obj_spec.rank, m1.obj_spec.rank, obj_specs)
+            m2.rank = Rank({m1.rank}, m2.rank.desc)
+        elif not m1.overridable and m2.overridable:
+            if logging.show_porting:
+                report_poverride(m1.rank, m2.rank, obj_specs)
+            m1.rank = Rank({m2.rank}, m1.rank.desc)
+
+    rank_to_methods = {}
+    for meth in methods:
+        rank_to_methods.setdefault(meth.rank, []).append(meth)
+
+    minimal_ancestry = traits.calc_minimal_ancestry(frozenset(rank_to_methods))
+
+    for (r, meths) in rank_to_methods.items():
+        [impl, *others] = sorted(meths, key=lambda meth: meth.abstract)
+        if impl.abstract:
+            continue
+
+        for other in others:
+            if not other.abstract:
+                # two conflicting method definitions in the same block
+                raise ENAMECOLL(other.site, impl.site, other.name)
+
+        if (not impl.shared # Handled separately
+            and impl.site.provisional_enabled(
+                provisional.explicit_method_decls)):
+            existing = others or [m for anc in minimal_ancestry[r]
+                                  for m in rank_to_methods[anc]]
+            if impl.explicit_decl:
+                if existing:
+                    report(EOVERRIDEMETH(impl.site, existing[0].site,
+                                         impl.name,
+                                         'default ' * impl.overridable))
+            elif not existing:
+                report(ENOVERRIDEMETH(impl.site, impl.name,
+                                      'default ' * impl.overridable))
+
+    (default_map, method_order) = traits.sort_method_implementations(impls)
 
     location = Location(obj, static_indices(obj))
 
-    impl_to_method = {}
-    for (default_level, impl) in reversed(list(enumerate(
-            method_order))):
+    nonshared_impls = []
+
+    for impl in method_order:
         if impl.shared:
             if default_map[impl]:
                 # shared method overrides a non-shared method
                 report(ETMETH(
                     default_map[impl][0].site, impl.site, name))
-            # handled separately
-            continue
+        else:
+            nonshared_impls.append(impl)
+
+    abstract_decls = [meth for meth in methods
+                      if meth.abstract and not meth.shared]
+
+    # Typecheck nonshared abstract decls against each other
+    for (meth0, meth1) in itertools.pairwise(abstract_decls):
+        typecheck_method_override(meth0.method_ast, meth1.method_ast,
+                                  location)
+
+    # Then typecheck any shared abstract declaration -- or, failing that,
+    # the highest ranking implementation -- against some arbitrary abstract
+    # decl
+    # This prioritization is because we consider the trait authorative for what
+    # the type should be.
+    if abstract_decls:
+        if shared_abstract_methods:
+            traits.typecheck_method_override(
+                abstract_decls[0].signature,
+                shared_abstract_methods[0].signature)
+        elif method_order:
+            impl = method_order[0]
+            if impl.shared:
+                traits.typecheck_method_override(
+                    impl.signature, abstract_decls[0].signature)
+            else:
+                typecheck_method_override(
+                    impl.method_ast, abstract_decls[0].method_ast, location)
+        else:
+            # This only done in this path because we favor reporting
+            # EABSTEMPLATE (done by the caller) over EABSMETH
+            report(EABSMETH(abstract_decls[0].site, name))
+
+    if not nonshared_impls:
+        return None
+
+    impl_to_method = {}
+    for (default_level, impl) in reversed(list(enumerate(nonshared_impls))):
         defaults = default_map[impl]
         if len(defaults) == 0:
             default = InvalidDefault(traits.NoDefaultSymbol(impl.site))
         elif len(defaults) == 1:
             if defaults[0].shared:
-                [trait] = shared_impl_traits
-                default = DefaultTraitMethod(
-                    trait.method_impls[name], obj)
+                default = DefaultTraitMethod(defaults[0].trait_method, obj)
             else:
                 default = DefaultMethodObj(
                     impl_to_method[defaults[0]])
@@ -1474,7 +1607,7 @@ def process_method_implementations(obj, name, implementations,
             default = InvalidDefault(traits.AmbiguousDefaultSymbol(
                 [m.site for m in defaults]))
         (name, (inp_ast, outp_ast, throws, qualifiers, body), _,
-         _, rbrace_site) = impl.method_ast.args
+         _, _, rbrace_site) = impl.method_ast.args
         independent = 'independent' in qualifiers
         startup = 'startup' in qualifiers
         memoized = 'memoized' in qualifiers
@@ -1528,7 +1661,7 @@ def process_method_implementations(obj, name, implementations,
                     pass
                 else:
                     raise EMETH(impl.site, overridden.site,
-                                "different nothrow annotations")
+                                "different 'throws' annotations")
 
         template = (impl.obj_spec.parent_template
                     if isinstance(impl.obj_spec, InstantiatedTemplateSpec)
@@ -1547,8 +1680,8 @@ def process_method_implementations(obj, name, implementations,
             obj.template_method_impls[(template, name)] = method
 
     if dml.globals.dml_version == (1, 2):
-        for (_, method_ast) in implementations:
-            (_, msite, _, _, _, exported, _) = method_ast
+        for (_, method_ast) in declarations:
+            (_, msite, _, _, _, exported, _, _) = method_ast
             if exported:
                 if not method.fully_typed:
                     raise EEXTERN(method.site)
@@ -1605,21 +1738,22 @@ def mkobj2(obj, obj_specs, params, each_stmts):
             if tpl.trait:
                 obj_traits.append((issite, tpl.trait))
 
-    for obj_spec in obj_specs:
-        for (templates, spec) in obj_spec.in_eachs:
-            each_stmts = each_stmts.copy()
-            each_stmts[templates[0]] = each_stmts.get(
-                templates[0], []) + [(templates[1:], spec)]
-
+    each_stmts_for_children = each_stmts
     (shallow_subobjs, composite_subobjs) = ([], [])
     for obj_spec in obj_specs:
-        for (preconds, shallow, composite) in obj_spec.blocks:
+        for (preconds, shallow, composite, in_eachs) in obj_spec.blocks:
             if all(eval_precond(cond, obj, global_scope)
                    for cond in preconds):
                 if logging.show_porting:
                     PWUNUSED.satisfied_conds.update(preconds)
                 shallow_subobjs.append((shallow, obj_spec))
                 composite_subobjs.append((composite, obj_spec))
+                for (templates, spec) in in_eachs:
+                    if each_stmts_for_children is each_stmts:
+                        each_stmts_for_children = each_stmts.copy()
+                    each_stmts_for_children[templates[0]] = (
+                        each_stmts_for_children.get(templates[0], [])
+                        + [(templates[1:], templates, spec)])
 
     # name -> list of (ObjectSpec, ast.method)
     method_asts = {}
@@ -1634,7 +1768,7 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                 _, esite, msg = s
                 raise EERRSTMT(esite, msg or "explicit error")
             elif s.kind == 'method':
-                (name, _, _, _, _) = s.args
+                (name, _, _, _, _, _) = s.args
                 if name not in method_asts:
                     if name in symbols:
                         report(ENAMECOLL(s.site, symbols[name], name))
@@ -1686,31 +1820,23 @@ def mkobj2(obj, obj_specs, params, each_stmts):
             else:
                 raise ICE(s.site, 'UNKNOWN %r' % (s,))
 
-    subobj_defs = {}
-
+    subobj_spec_by_ident = {}
     for (stmts, obj_spec) in composite_subobjs:
         for s in stmts:
-            (objtype, ident, arrayinfo, subobj_spec) = s
+            (objtype, ident, arrayinfo, is_extension, subobj_spec) = s
 
             if ident is None:
                 assert (dml.globals.dml_version == (1, 2)
                         and objtype in {'bank', 'field'})
-
-            subobj_def = (objtype, ident, arrayinfo, [subobj_spec])
-            if ident in subobj_defs:
-                subobj_defs[ident] = merge_subobj_defs(subobj_defs[ident],
-                                                       subobj_def, obj)
-            elif ident in symbols:
+            subobj_spec_by_ident.setdefault(ident, []).append(
+                (objtype, arrayinfo, is_extension, subobj_spec))
+    subobj_defs = {}
+    for (ident, defs) in subobj_spec_by_ident.items():
+        if ident in symbols:
+            for (_, _, _, subobj_spec) in defs:
                 report(ENAMECOLL(subobj_spec.site, symbols[ident], ident))
-            else:
-                symbols[ident] = subobj_spec.site
-                subobj_defs[ident] = subobj_def
-
-    for (_, _, arrayinfo, specs) in subobj_defs.values():
-        for (i, (idx, dimsize_ast)) in enumerate(arrayinfo):
-            if dimsize_ast is None:
-                report(EAUNKDIMSIZE(specs[0].site, i, idx))
-                arrayinfo[i] = (idx, ast.int(specs[0].site, 1))
+        else:
+            subobj_defs[ident] = merge_subobj_defs(ident, defs, obj)
 
     explicit_traits = Set(t for (_, t) in obj_traits)
     ancestors = explicit_traits.union(
@@ -1762,7 +1888,7 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                     break
             else:
                 vtable_nothrow_dml14 = False
-        implementations = method_asts[name]
+        declarations = method_asts[name]
         if (dml.globals.dml_version != (1, 2)
             and name in {
                 'register': {'read', 'write', 'read_field', 'write_field'},
@@ -1770,19 +1896,31 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                           'get', 'set'},
             }.get(obj.objtype, set())):
             if dml.globals.traits[name] not in ancestors:
-                (_, mast) = implementations[0]
+                (_, mast) = declarations[0]
                 report(WNOIS(mast.site, name))
 
+        trait_impls = trait_method_impls.get(name, [])
+        trait_abstract_decls = Set()
+        # Right now, calculating trait_abstract_decls is only relevant when
+        # trait_impls is empty, so we don't calculate it otherwise
+        if not trait_impls:
+            for t in explicit_traits:
+                decl = t.member_declaration(name)
+                if (decl is not None
+                    and t.member_kind(name) == 'method'):
+                    trait_abstract_decls.add(t.vtable_trait(name))
+
         try:
-            method = process_method_implementations(
-                obj, name, implementations,
-                trait_method_impls.get(name, []),
+            method = process_method_declarations(
+                obj, name, declarations,
+                trait_method_impls.get(name, []), trait_abstract_decls,
                 obj_specs,
                 dml.globals.dml_version == (1, 2) and vtable_nothrow_dml14)
         except DMLError as e:
             report(e)
         else:
-            obj.add_component(method)
+            if method is not None:
+                obj.add_component(method)
 
     if logging.show_porting:
         report_pbefaft(obj, method_asts)
@@ -1805,8 +1943,8 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                     # matter since it's not applied to any parameters
                     # or methods
                     Rank(set(), RankDesc('verbatim', '<implicit field>')),
-                    [(obj.site, dml.globals.templates['field'])], [], [], [])],
-                obj, each_stmts))
+                    [(obj.site, dml.globals.templates['field'])], [], [])],
+                obj, each_stmts_for_children))
 
     for name in sorted(sessions):
         session_spec = sessions[name]
@@ -1846,7 +1984,7 @@ def mkobj2(obj, obj_specs, params, each_stmts):
             continue
         try:
             subobj = mkobj(ident, objtype, arrayinfo, subobj_specs, obj,
-                           each_stmts)
+                           each_stmts_for_children)
         except DMLError as e:
             report(e)
         else:
@@ -1933,8 +2071,8 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                 (tsite, tinp, toutp, tthrows, tindep, tstartup, tmemod) \
                     = vtable_trait.vtable_methods[member]
                 if not override.fully_typed:
-                    for (n, t) in override.inp:
-                        if not t:
+                    for p in override.inp:
+                        if p.inlined:
                             raise EMETH(
                                 override.site, tsite,
                                 'input argument declared without a type')
@@ -2020,7 +2158,7 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                         param.get_expr(zero_index * param.dimensions)
                 except DMLError as e:
                     if (dml.globals.dml_version == (1, 2)
-                        and dml.globals.api_version <= compat.api_5
+                        and dml.globals.api_version <= breaking_changes.api_5
                         and isinstance(e, EREF)):
                         # We forgive some errors in unused parameters, to
                         # avoid the annoyance caused by hard errors from code
@@ -2040,7 +2178,7 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                     else:
                         report(e)
         if (dml.globals.dml_version != (1, 2)
-            or compat.dml12_misc not in dml.globals.enabled_compat):
+            or breaking_changes.dml12_remove_misc_quirks.enabled):
             # TODO: this should be handled cleaner in the case of pure
             # 1.4 code
             for p in obj.get_components():
@@ -2048,9 +2186,9 @@ def mkobj2(obj, obj_specs, params, each_stmts):
                 if sym and (
                         # hacky workaround for the ExpressionSymbol
                         # implicitly added above. Needed when importing 1.4
-                        # code from 1.2 with --no-compat=dml12_misc
+                        # code from 1.2 with --breaking-change=dml12_remove_misc_quirks
                         dml.globals.dml_version != (1, 2)
-                        or p.site.dml_version == (1, 2)
+                        or p.site.dml_version() == (1, 2)
                         or p.site != sym.site):
                     report(ENAMECOLL(p.site, sym.site, p.name))
 
@@ -2758,7 +2896,7 @@ def need_port_proxy_attrs(port):
     return (port.objtype in {'port', 'bank'}
             and port.dimensions <= 1
             and port.parent is dml.globals.device
-            and compat.port_proxy_attrs in dml.globals.enabled_compat)
+            and not breaking_changes.remove_port_proxy_attrs.enabled)
 
 class ConfAttrParentObjectProxyInfoParamExpr(objects.ParamExpr):
     '''The _parent_obj_proxy_info parameter of a attribute, register, or
@@ -2808,14 +2946,20 @@ class InterfacesDocParamExpr(objects.ParamExpr):
     def mkexpr(self, indices):
         if self.cached is not None:
             return self.cached
-        ifaces = [i for i in self.node.get_components('interface')
-                  if param_bool(i, 'required')]
-        if ifaces:
-            self.cached = mkStringConstant(
-                self.site,
-                '\n\nRequired interfaces: '
-                + ', '.join('<iface>' + i.name + '</iface>' for i in ifaces)
-                + '.')
+        iface_nodes = self.node.get_components('interface')
+        if iface_nodes:
+            (required, optional) = ([], [])
+            for i in iface_nodes:
+                (required if param_bool(i, 'required') else optional).append(i.name)
+            text = ''
+            for (req, ifaces) in [('Required', required),
+                                  ('Optional', optional)]:
+                if ifaces:
+                    s = 's' if len(ifaces) > 1 else ''
+                    text += (f'\n\n{req} interface{s}: '
+                             + ', '.join(f'<tt>{iface}</tt>'
+                                         for iface in sorted(ifaces)))
+            self.cached = mkStringConstant(self.site, text)
         else:
             self.cached = mkUndefined(self.site)
         return self.cached
@@ -2909,7 +3053,8 @@ def port_builtin_method_overrides(name, site, inp_ast, parent_obj):
         for (old_idx, new_type) in args:
             if isinstance(old_idx, int):
                 old_arg = inp_ast[old_idx]
-                (n, _) = old_arg.args
+                ((kind, _, n), _) = old_arg.args
+                assert kind == 'variable'
             else:
                 n = old_idx
             new_inp.append(new_type + n)
@@ -3092,7 +3237,9 @@ def mkmethod(site, rbrace_site, location, parent_obj, name, inp_ast,
              outp_ast, throws, independent, startup, memoized, body, default,
              default_level, template):
     # check for duplicate parameter names
-    named_args = inp_ast
+    named_args = [ast.cdecl(s, ident.args[0], typ)
+                  for (_, s, ident, typ) in inp_ast
+                  if ident.kind == 'variable']
     if body.site.dml_version() == (1, 2):
         named_args = named_args + outp_ast
     argnames = set()
@@ -3119,7 +3266,7 @@ def mkmethod(site, rbrace_site, location, parent_obj, name, inp_ast,
     inp = eval_method_inp(inp_ast, location, global_scope)
     outp = eval_method_outp(outp_ast, location, global_scope)
 
-    for (n, t) in inp + outp:
+    for t in [p.typ for p in inp] + [t for (_, t) in outp]:
         if t:
             check_named_types(t)
             t = realtype(t)

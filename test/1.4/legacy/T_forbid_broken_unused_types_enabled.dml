@@ -1,0 +1,11 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+
+device test;
+
+/// DMLC-FLAG --breaking-change=forbid-broken-unused-types
+/// SCAN-FOR-TAGS forbid_broken_unused_types.dml
+import "forbid_broken_unused_types.dml";

@@ -359,3 +359,97 @@
 - `note 6` Improved the log messages that are output by default for partial register accesses (fixes [#356](https://github.com/intel/device-modeling-language/issues/356)).
 - `release 6 6385`
 - `release 7 7080`
+- `note 6` Fixed a bug where very particular hierarchies of `shared` and non-`shared` method overrides together would lead to an internal compiler error (fixes SIMICS-23289).
+- `release 7 7122`
+- `release 6 6437`
+- `release 7 7123`
+- `note 6` Added the _discard reference_ "`_`" &mdash; a non-value expression
+  which may be used as an assign target in order to explictly discard the result
+  of an evaluated expression or return value of a method call (fixes
+  SIMICS-21584.)
+
+  Example usage:
+  ```
+  _ = any_expression;
+  _ = throwing_method();
+  (_, x, _) = method_with_multiple_return_values();
+  ```
+- `note 6` "`_`" can no longer be used as the name for arbitrary declarations.
+  Instead, it is now only permitted in particular contexts, and in these
+  contexts, `_` will affect the declaration in a way suitable for when the
+  declaration is _unused_ in some particular way. This feature is referred to
+  as the _discard identifier_, and the contexts where it may be used are:
+    - Method-local bindings (e.g. variables and input parameters.)
+
+      When a method-local binding is given the name "`_`", it will not be added
+      to scope. This is useful for e.g. unused method parameters.
+    - Index variables for object arrays
+
+      When `_` is specified as an index variable, a parameter will not be
+      created for it, meaning it cannot conflict with any other definition, and
+      it cannot be referenced in the code in order to get the value of the index
+      in question. It also isn't considered to conflict with any other
+      definition that gives the index variable a different name. This is useful
+      when defining an object array specification which does not depend on the
+      index.
+    - Layout member names
+
+      When a layout member is given the name "`_`", that member will not be
+      referencable within DML code, but will still affect the memory
+      representation of the layout. This is useful to represent e.g. reserved
+      or padding bytes.
+
+  Note that as a consequence of these semantics, any reference to `_` in code
+  will _always_ resolve to the discard reference.
+- `release 7 7127`
+- `release 6 6441`
+- `note 6` The method implementations that may be incurred by instantiating the
+  `read_field`, `write_field`, `read`, or `write` templates have all been made
+  overridable. See the documentation of these templates for more details.
+- `release 7 7129`
+- `release 6 6444`
+- `note 6` Added non-`shared` abstract method declarations, e.g.
+  ```
+  method m(uint8 a) -> (int);
+  ```
+  Similarly to untyped abstract parameter declarations, an abstract method
+  declaration may be specified regardless of whether it's in the context of a
+  template definition, and regardless of what other declarations of the same
+  method exists (except that all declarations must share the same signature.)
+- `note 6` Added a provisional feature `explicit_method_decls`, which can be
+  enabled per file by a statement `provisional explicit_method_decls;`.
+  This feature adds a syntax `method m() :{ ... }`, which signifies that the method
+  is *not* intended as an override. The existing syntax `method m() { ... }`
+  is re-purposed to signify that the method *is* intended as an override,
+  Inconsistent usage will trigger compile errors. This is useful to
+  catch misspelled overrides.
+- `note 6` Addressed a memory leak introduced in Simics 7.74.0 (fixes
+  HSD-22022108767.)
+- `release 7 7143`
+- `note 6` Object-level `#if` now has full support for `in each` declarations
+  (fixes SIMICS-23427.)
+  Previously, any `in each` declaration appearing directly within an `#if` would
+  be rejected by the compiler unless leveraging the experimental and heavily
+  limited feature of top-level `#if`s containing unsupported declarations.
+- `release 6 6456`
+- `release 7 7144`
+- `note 6` The documentation of `connect` objects now lists the set of
+  optional interfaces, in addition to the set of required interfaces.
+- `release 7 7152`
+- `note 6` The default implementation of `get()` and `set()` of `bank`s will now log an
+  error and do nothing if passed an invalid access size. This may impact poorly
+  made inquiry reads and writes to banks.
+- `release 7 7154`
+- `release 6 6461`
+- `note 6` Added the `objects_finalized` template, which is in the vein of
+  `init` and `post_init`, representing the stage after the device has been
+  created. Once Simics has successfully configured both the device and any
+  other configuration objects created at the same time, it will then ensure
+  that the `objects_finalized()` method is called of every DML object that
+  instantiates the `objects_finalized` template.
+  The device object always instantiates this template.
+- `release 6 6464`
+- `release 7 7160`
+- `note 6` The `map_target` template from `utility.dml` now frees the internally
+ created map target upon device deletion.
+- `release 7 7178`

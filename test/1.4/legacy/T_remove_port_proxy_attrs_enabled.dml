@@ -1,0 +1,16 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+
+device test;
+
+/// API-VERSION 6
+/// DMLC-FLAG --breaking-change=remove-port-proxy-attrs
+
+import "remove_port_proxy_attrs.dml";
+
+method init() {
+    test(false);
+}

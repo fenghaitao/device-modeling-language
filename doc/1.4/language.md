@@ -78,9 +78,19 @@ Identifiers
 
 Identifiers in DML are defined as in C; an identifier may begin
 with a letter or underscore, followed by any number of letters,
-numbers, or underscores. Identifiers that begin with an underscore (`_`)
-are reserved by the DML language and standard library and should not
-be used.
+numbers, or underscores.
+
+<a id="discard-identifier"/>
+Identifiers that begin with an underscore (`_`) are reserved by the DML language
+and standard library and should not be used, with the exception of the single
+underscore `_`; this is considered to be the *discard identifier*, and is only
+permitted as the name of a declaration in specific contexts, where it gives the
+declaration special semantics. Currently, these contexts are:
+* Method-local bindings, e.g. [local variables](#local-statements) &mdash;
+see that section for more information.
+* Index parameters for object arrays. See the documentation for the
+  [`object` template](dml-builtins.html#object) for more information.
+* As the name of one or more members of a [layout type](#layouts).
 
 </dd><dt>
 
@@ -205,9 +215,8 @@ accident.) The syntax for pragmas are as follows:
 /*% <em>tag</em> ... %*/
 </pre>
 Where _`tag`_ specifies the pragma used, and which determines the syntax of
-everything following it before the pragma is closed. Tags are case insensitive,
-but are fully capitilized by convention. DMLC will print a warning if a pragma
-is given with a tag that the compiler does not recognize.
+everything following it before the pragma is closed. DMLC reports an error
+if a pragma is given with a tag that the compiler does not recognize.
 
 A pragma may be given anywhere an inline comment may; however, the meaning of
 a pragma is dependent on its placement, and a specified pragma can be completely
@@ -363,8 +372,20 @@ object. Although similar to C functions, DML methods can have any number of
 input parameters and return values. DML methods also support a basic exception
 handling mechanism using `throw` and `try`.
 
-[In-detail description of method declarations are covered in a separate
-section.](#methods-detailed)
+Method declarations are covered in detail in a [separate
+section](#methods-detailed).
+
+### Navigating the object hierarchy
+
+Object declarations form nested scopes, which make it easy to reference between objects. For instance, consider a bank `regs` that contains two registers `r1` and `r2`, where the register `r1` in turn contains a field `f1`. Then any expression in the parameters and methods within `r1` can use the expression `size` to refer to the `size` parameter of `r1`, `f1.val` to refer to the `val` parameter of `f1`, and `r2.size` to refer to the size of the `r2` register. Names can be qualified; e.g., within `r1` you can write `f1`, `r1.f1` or `regs.r1.f1` interchangeably.
+
+Some universal parameters are useful when navigating the object hierarchy:
+* `dev` can be used anywhere to refer to the top level scope
+* `this` always refers to the current object, so the expressions `this.size` and `size` are interchangeable within a register
+* `parent` (or `this.parent`) refers to the nearest enclosing object; e.g., within `r1`, `parent` refers to the `regs` bank.
+* `qname` is a string that describes the current location in the hierarchy, for instance `"regs.r1.f1"`. It is useful for logging and debugging.
+
+The `dev`, `this` and `parent` parameters are sometimes needed when an identifier is shadowed by an inner scope. For instance, if a method in `r1` has a local variable named `r2`, then the `r2` register object can still be accessed safely through the expression `this.parent.r2`.
 
 ### The Device
 
@@ -558,8 +579,7 @@ contain a number of `field` objects. Each field is defined
 to correspond to a bit range of the containing register.
 
 The value of a field is stored in the corresponding bits of the containing
-register's storage. The easiest way to access the value of a register or field
-is to use the `get` and `set` methods.
+register's storage. The easiest way to access the value of a field is to use the `val` parameter, which expands to a [bit slice expression](#bit-slicing-expressions) over the containing register's storage.
 
 The read and write behaviour of registers and fields is in most cases
 controlled by instantiating *templates*. There are three
@@ -829,7 +849,7 @@ import "simics/devs/ethernet.dml"
 ### Events
 
 An *event* object is an encapsulation of a Simics event that can
-be posted on a processor time or step queue. The location of event
+be posted on the time queue of a CPU. The location of event
 objects in the object hierarchy of the device is not important, so an
 event object can generally be placed wherever it is most convenient.
 
@@ -1107,6 +1127,30 @@ template B is A {
 
 See [Resolution of Overrides](#resolution-of-overrides) for a formal
 specification of override rules.
+
+### Resolving template inheritance ambiguities
+
+If the template inheritance hierarchy is ambiguous such that a method or
+parameter receives definitions from multiple templates, and no definition can be
+said to be more specific than the others (see [Resolution of
+overrides](#resolution-of-overrides)), then compilation fails with an
+[`EAMBINH` error message](messages.html#EAMBINH).
+
+There are multiple ways to resolve this:
+
+* If appropriate, change one of the conflicting templates to instantiate the
+  others, as DMLC suggests.
+* For methods, it's possible to leverage [template-qualified method
+  implementation calls](#template-qualified-method-implementation-calls) to make
+  a final definition that combines and overrides all the ambiguous definitions.
+  This is much more complex, but can be preferable if it's undesirable to have
+  any of the conflicting templates involved be dependent on the others.
+* Depending on the situation, the conflicting templates may be modified and/or
+  new templates may be introduced such that the conflict can be avoided
+  entirely. For example, if two conflicting templates provide the same
+  definition of a parameter/method, then that definition can be broken out to a
+  common template which then both conflicting templates instantiate, making
+  them no longer conflict.
 
 ### Templates as types
 
@@ -1528,6 +1572,7 @@ typedef struct { <em>member declarations</em> } <em>name</em>;
 
 Layouts
 </dt><dd>
+<a id="layouts"/>
 
 A layout is similar to a struct in many ways.  The important
 difference is that there is a well-defined mapping between a layout
@@ -1562,6 +1607,24 @@ integer members (and arrays of similar) are translated
 to endian integers (or arrays of such) of similar size,
 with endianness matching the layout. Layout and endian integer
 members are accessed normally.
+
+The *discard identifer* `_` may be used as the name of any number of members
+within a layout, making these *anonymous*. Anonymous layout members cannot be
+referenced within DML code, but will still influence the underlying memory
+representation of the layout in the same way as regular members.
+This is useful to represent reserved or padding bytes, or bytes that the device
+otherwise doesn't study or manipulate.
+
+Note that when a compound initializer is given for a variable of layout type,
+an initializer must still be given for each anonymous member:
+```
+local layout "little-endian" { uint32 x; uint32 _; uint32 y} = {1,0,2};
+```
+... unless designated initializers are used, in which case anonymous members
+can (and must) be omitted:
+```
+local layout "little-endian" { uint32 x; uint32 _; uint32 y} = {.x = 1, .y = 2};
+```
 </dd><dt>
 
 Bitfields
@@ -1769,13 +1832,40 @@ handled:
 * A method can only be overridden by another method if it is declared
   `default`.
 
+All declarations of the same method in an object must share the same signature:
+every declaration must share input parameters, return value types, agree on
+whether the method throws, and agree on the method qualifiers used except
+`shared` ([`independent`](#independent-methods),
+[`startup`](#independent-startup-methods),
+[`memoized`](#independent-startup-memoized-methods),
+[`inline`](#inline-methods)).
+
 > [!NOTE]
-> An overridable built-in method is defined by a template
-> named as the object type. So, if you want to write a template that
-> overrides the `read` method of a register, and want to make
-> your implementation overridable, then your template must explicitly
-> instantiate the `register` template using a statement `is
-> register;`.
+> Overridable built-in methods are often defined by a template named as the
+> object type. For example, if you want to write a template that overrides the
+> `read_register` method of a register, then your template must explicitly
+> instantiate the `register` template using
+> <code>template <em>name</em> is (register) { ... }</code>.
+
+### Abstract method declarations
+A method may be declared abstractly, imposing a requirement that some definition
+of that method, by some part of the device model, is provided to the object the
+abstract declaration is a member of. If that requirement is not satisfied then
+the device model will be rejected by the compiler.
+
+The following is an example of an abstract method declarations:
+```
+method m(uint32 a, bool b) -> (uint8, uint16) throws;
+```
+
+Similarly to [untyped abstract parameter declarations](#parameters-detailed), a
+non-`shared` abstract method declaration may be specified regardless of what
+other declarations of that method there are in the model, except that it is
+still subject to the requirement that every declaration of the same method must
+share the same signature. In contrast, [`shared` abstract method
+declarations](#shared-methods) may only be specified if there is no previous
+([lower or equal ranked](#resolution-of-overrides)) `shared` declaration of that
+method.
 
 ### Calling Methods
 
@@ -2419,11 +2509,11 @@ may reference parameters declared at the same level in the object
 hierarchy, or in parent levels.
 
 The *object declarations* are any number of declarations of objects, session
-variables, saved variables, methods, or other `#if` statements, but not
-parameters, `is` statements, or `in each` statements . When the conditional is
+variables, saved variables, methods, `in each` statements, or other `#if`
+statements, but not parameters or `is` statements. When the conditional is
 `true` (or if it's the else branch of a false conditional), the object
-declarations are treated as if they had appeared without any surrounding *#if*.
-So the two following declarations are equivalent:
+declarations are treated as if they had appeared without any surrounding `#if`.
+Thus, the two following snippets are equivalent:
 
 ```
 #if (true) {
@@ -2433,11 +2523,35 @@ So the two following declarations are equivalent:
 }
 ```
 
-is equivalent to
-
 ```
 register R size 4;
 ```
+
+As a special exception, an `#if` statement that appears on top level is allowed
+to contain any type of statement, as long as the condition doesn't reference
+any identifiers other than `dml_1_2`, `true` and `false`.
+This is often useful while migrating the devices of a system from DML 1.2
+to DML 1.4, as it allows conditional definitions of templates in common
+code used from both DML 1.2 and DML 1.4.
+For example, let's say an existing template `reset_to_seven`
+is used in DML 1.2 code to set the reset value of a field to 7 in DML 1.2.
+The parameters that control reset values have changed from DML 1.2 to DML 1.4,
+and one way to handle this is to provide separate template definitions
+depending on whether the device uses DML 1.2 or DML 1.4:
+```
+#if (dml_1_2) {
+    template seven is field {
+        param hard_reset_value = 7;
+        param soft_reset_value = 7;
+    }
+} #else {
+    template seven is field {
+        param init_val = 7;
+    }
+}
+```
+Later, when all related devices have been ported to DML 1.4,
+the `dml_1_2` clause can be removed.
 
 ## In Each Declarations
 
@@ -2771,6 +2885,29 @@ This section describes in detail the rules for how DML handles when there are
 multiple definitions of the same parameter or method. A less technical but
 incomplete description can be found in the [section on templates](#templates).
 
+These rules are designed to follow an intuition of prioritization based on
+*specificity*; roughly speaking, a particular definition will be prioritized
+ahead of another if DMLC is able to deduce that it is more specific than the
+other, based on the contexts in which each definition is made. Problems related
+to override resolution can typically be understood and solved purely through
+that lens, without the need to understand the technical rules in detail.
+
+For example, if you are a modeller introducing an implementation of a method
+`m()`, only to have DMLC complain that it conflicts with an earlier definition
+made in a template `t`, then that is because DMLC is unable to spot any
+dependency establishing that the context you're working in is more specific than
+the body of `t`. The most common solution to that is to make that dependency
+clear by adding `is t` to the object/template in which you are defining `m()`.
+
+Establishing dependencies may not always be desirable. In particular, it's
+possible to have conflicting templates which provide different orthogonal
+functionality, such that it would be wrong to make one depend upon the other.
+An alternate way to resolve conflicting method implementations in such cases is
+to leverage [template-qualified method implementation
+calls](#template-qualified-method-implementation-calls).
+
+The technical rules for resolution of overrides are as follows:
+
 * Each declaration in every DML file is assigned a *rank*. The set of ranks
   form a partial order, and are defined as follows:
   * The top level of each file has a rank.
@@ -2787,7 +2924,7 @@ incomplete description can be found in the [section on templates](#templates).
     then the top level of *F<sub>1</sub>* has higher rank than the top
     level of *F<sub>2</sub>*.
   * A declaration has higher rank than the block of any `in each`
-    declaration it contains.
+    declaration it contains, including those inside an `#if` block.
   * An `in each` block has higher rank than the templates it applies to
   * If there are three declarations *D<sub>1</sub>*, *D<sub>2</sub>*
     and *D<sub>3</sub>*, where *D<sub>1</sub>* has higher rank than
@@ -2800,19 +2937,21 @@ incomplete description can be found in the [section on templates](#templates).
   *dominates* the set if it has higher rank than all other
   declarations in the set.  Abstract `param` declarations (<code>param
   <em>name</em>;</code> or <code>param <em>name</em> :
-  <em>type</em>;</code>) and abstract method definitions (<code>method
+  <em>type</em>;</code>) and abstract method declarations (<code>method
   <em>name</em>(<em>args...</em>);</code>) are excluded here; they
   cannot dominate a set, and a dominating declaration in a set does
   not need to have higher declaration than any abstract `param` or
   `method` declaration in the set.
-* There may be any number of *untyped* abstract definitions of a
+* There may be any number of *untyped* abstract declarations of a
   parameter (<code>param <em>name</em>;</code>).
 * There may be at most one *typed* abstract definition of a parameter
   (<code>param <em>name</em> : <em>type</em>;</code>)
-* There may be at most one abstract shared definition of a method. Any
+* There may be any number of *non-shared* abstract declarations of a
+  method.
+* There may be at most one abstract shared declaration of a method. Any
   other *shared* definition of this method must have higher rank than
   the abstract definition, but any rank is permitted for non-shared
-  definitions. For instance:
+  declarations. For instance:
 
   ```
   template a {
@@ -2826,7 +2965,7 @@ incomplete description can be found in the [section on templates](#templates).
       shared method m();
   }
   template bb is b {
-      // Error: abstract shared definition overrides non-abstract
+      // Error: abstract shared declaration overrides non-abstract
       shared method m();
   }
   ```
@@ -3222,6 +3361,28 @@ local (bool a, int i) = m();
 In the absence of explicit initializer expressions, a default
 "all zero" initializer will be applied to each declared object.
 
+The *discard identifier* `_` may be used as an identifier for local variables,
+as well as other method-local bindings such as the method parameters, the bound
+identifier in `foreach`/`#foreach`/`#select` statements, and message component
+parameters of [hook-bound after statements](#hook-bound-after-statements).
+Any method-local binding named "`_`" *will not be added to scope*. This is
+useful for when a method parameter is unused, or if you perform a method call
+where only a subset of returned values are of interest:
+```
+local (bool a, int _) = m();
+// No conflicts since "_" is not added to scope
+local (bool a, int _, float _) = returns_three_vals();
+```
+
+An alternative to this pattern is to leverage the [discard
+reference](#discard-reference):
+```
+local bool a;
+(a, _, _) = returns_three_vals();
+```
+... which does not require you to specify the types of the discarded values,
+but may result in more lines of code.
+
 ### Session Statements
 <pre>
 session <em>type</em> <em>identifier</em> [= <em>initializer</em>];
@@ -3396,116 +3557,131 @@ the implementations are provided by hierarchically unrelated templates such that
 `default` can't be used (see [Resolution of
 overrides](#resolution-of-overrides).) In particular, this typically allows for
 ergonomically resolving conflicts introduced when multiple orthogonal templates
-are instantiated, as long as all conflicting implementations are overridable,
-and one of the following is true:
-* The implementations can be combined together by calling each one of them, as
-  long as that can be done without risking e.g. side-effects being duplicated.
-* The implementations can be combined by choosing one particular template's
-  implementation to invoke (typically the one most complex), and then adding
-  code around that implementation call in order to replicate the behaviour of
-  the implementations of the other templates. Ideally, the other templates would
-  provide methods that may be leveraged so that their behaviour may be
-  replicated without the need for excessive boilerplate.
+are instantiated, as long as all conflicting implementations are overridable.
 
-The following is an example of the first case:
+The following example demonstrates the most common kind of conflict that
+hierarchically unrelated templates may introduce, and how template-qualified
+method implementation calls may be leveraged to resolve it. Consider the
+following templates:
 ```
-template alter_write is write {
-    method write(uint64 written) {
-        default(alter_write(written));
-    }
-
-    method alter_write(uint64 curr, uint64 written) -> (uint64);
-}
-
-template gated_write is alter_write {
-    method write_allowed() -> (bool) default {
+template gated_write is write {
+    method write_allowed(uint64 val) -> (bool) default {
         return true;
     }
 
-    method alter_write(uint64 curr, uint64 written) -> (uint64) default {
-        return write_allowed() ? written : curr;
+    method write(uint64 val) default {
+        if (write_allowed(val)) {
+            default(val);
+        }
     }
 }
 
-template write_1_clears is alter_write {
-    method alter_write(uint64 curr, uint64 written) -> (uint64) default {
-        return curr & ~written;
+template write_1_clears is write {
+    method write(uint64 val) default {
+        default(get() & ~val);
     }
+}
+```
+
+If one would like to instantiate both templates for a particular `field`,
+attempting to do so would cause DMLC to reject the model, as the choice of
+`write` implementation then becomes ambiguous.
+The typical solution to implementation conflicts between templates &mdash;
+making one template inherit from the other &mdash; is not appropriate in this
+situation, as the operation of each template is orthogonal to the other,
+and they may be used individually in other contexts.
+
+Instead, what one may do is to modify one or both templates to offer an
+overridable "base" method that is called instead of `default` within the
+template's implementation of `write`. This additional flexibility enables a way
+to situationally resolve the conflict: if both templates are in play, override
+the base method of one template to call the `write` implementation of the
+other. This effectively defines the chain in which the conflicting
+implementations are to be called from one another, combining their behaviour.
+
+The default implementations of the base methods can be to invoke the `write`
+implementation of their parent template, which makes calling them the same as
+calling `default`. This captures the regular case where no conflicting templates
+are in play.
+
+The below shows this approach being applied to the example above, modifying
+`gated_write` to offer a base method, and leveraging a new template and an
+`in each` declaration to automatically resolve the conflict wherever it would
+occur in the model.
+```
+template gated_write is write {
+    method write_allowed(uint64 val) -> (bool) default {
+        return true;
+    }
+
+    method write(uint64 val) default {
+        if (write_allowed(val)) {
+            base_write_of_gated_write(val); // instead of default()
+        }
+    }
+
+    method base_write_of_gated_write(uint64 val) default {
+        // This is the implementation that default() would have resolved to
+        this.templates.write.write(val);
+    }
+}
+
+template write_1_clears is (write, get) { // unchanged
+    ...
 }
 
 template gated_write_1_clears is (gated_write, write_1_clears) {
-    method alter_write(uint64 curr, uint64 written) default {
-        local uint64 new = this.templates.write_1_clears.alter_write(
-            curr, written);
-        return this.templates.gated_write.alter_write(curr, new);
+    // Resolve the conflict by providing an unambiguously most specific
+    // write implementation
+    method write(uint64 val) default {
+        // This makes gated_write the first link in the call chain...
+        this.templates.gated_write.write(val);
+    }
+
+    // ... and by overriding gated_write's base method, we make write_1_clears
+    // the second (and final) link in the chain
+    method base_write_of_gated_write(uint64 val) default {
+        this.templates.write_1_clears.write(val);
     }
 }
 
-// Resolve the conflict introduced whenever the two orthogonal templates are
-// instantiated by also instantiating gated_write_1_clears when that happens
 in each (gated_write, write_1_clears) { is gated_write_1_clears; }
 ```
+> [!NOTE]
+> The example given above applies regardless of whether the method
+> implementations in the original templates are `shared` or not. However, the
+> implementations in the template defined to resolve the conflicts might need to
+> be non-`shared` if some of the implementations involved are not `shared`;
+> see the final paragraph of this subsection.
 
-The following is an example of the second case:
-```
-template very_complex_register is register {
-    method write_register(uint64 written, uint64 enabled_bytes,
-                          void *aux) default {
-        ... // An extremely complicated implementation
-    }
-}
+This approach can be applied to resolve conflicts across more than two
+conflicting templates; however, this scales poorly if used to support arbitrary
+combinations of many conflicting templates. It should instead be applied only
+for the specific conflicts that become observed and can't easily be resolved
+through other means.
 
-template gated_register is register {
-    method write_allowed() -> (bool) default {
-        return true;
-    }
+Note that the order of implementations in the call chain might matter. If, in
+the example above, `write_1_clears` were instead modified to offer a base method
+and been made the first link in the chain, then what it would have passed down
+as the written value to `gated_write` would not have been the original value
+&mdash; but rather, the register's current value with bits cleared, which might
+violate the expectations of `gated_write`'s implementation.
 
-    method on_write_attempted_when_not_allowed() default {
-        log spec_viol: "%s was written to when not allowed", qname;
-    }
-
-    method write_register(uint64 written, uint64 enabled_bytes,
-                          void *aux) default {
-        if (write_allowed()) {
-            default(written, enabled_bytes, aux);
-        } else {
-            on_write_attempted_when_not_allowed();
-        }
-    }
-}
-
-template very_complex_gated_register is (very_complex_register,
-                                         gated_register) {
-    // No sensible way to combine the two implementations by calling both.
-    // Even if there were, calling both implementations would cause each field
-    // of the register to be written to multiple times, potentially duplicating
-    // side-effects, which is undesirable.
-    // Instead, very_complex_register is chosen as the base implementation
-    // called, and the behaviour of gated_register is replicated around that
-    // call.
-    method write_register(uint64 written, uint64 enabled_bytes,
-                          void *aux) default {
-        if (write_allowed()) {
-            this.templates.very_complex_register.write_register(
-                written, enabled_bytes, aux);
-        } else {
-            on_write_attempted_when_not_allowed();
-        }
-    }
-}
-
-in each (gated_register, very_complex_register) {
-    is very_complex_gated_register;
-}
-```
+The approach given above is not the only way in which template-qualified method
+implementation calls may be utilized to resolve conflicts, only the most
+commonly applicable one. In fact, the most simple approach, if viable, is to
+have the implementation introduced to resolve the conflict simply call each
+conflicting implementation in turn, if that doesn't cause side-effects to be
+duplicated in an undesirable way. It may even be viable to call only one
+particular implementation, if it makes sense to prefer it ahead of every other.
 
 A template-qualified method implementation call is resolved by using
 the method implementation provided to the object by the named template.
-If no such implementation is provided (whether it be because the template does
-not specify one, or specifies one which is not provided to the object due to its
+If no such implementation exists (whether it be because the template does not
+specify one, or specifies one which is not provided to the object due to its
 definition being eliminated by an [`#if`](#conditional-objects)), then the
 ancestor templates of the named template are recursively searched for the
-highest-rank (most specific) implementation provided by them. If the ancestor
+highest-ranking (most specific) implementation provided by them. If the ancestor
 templates provide multiple hierarchically unrelated implementations, then the
 choice is ambiguous and the call will be rejected by the compiler. In this case,
 the modeller must refine the template-qualified method implementation call to
@@ -3514,7 +3690,7 @@ name the ancestor template whose implementation they would like to use.
 A template-qualified method implementation call done via [a value of template
 type](#templates-as-types) functions differently compared to compile-time
 object references. In particular, `this.templates` within the bodies of `shared`
-methods functions differently. The specified template must be an ancestor
+methods functions differently. The specified template must either be an ancestor
 template of the value's template type, the <tt>object</tt> template, or the
 template type itself; furthermore, the specified template **must provide or
 inherit a `shared` implementation of the named method**. It is not sufficient
@@ -3587,6 +3763,14 @@ object with an event-method that performs the specified call, and posting
 that event at the given time, with associated data corresponding to the
 provided arguments.
 
+In Simics, the `after` event is posted on the clock or CPU associated with the
+device. This is not necessarily the same as the currently executing CPU. This
+means that a significant number of CPU instructions might be executed before
+the method is called, even if the delay is short. In the case when you just
+want a minimal delay to make things happen in the right order, it is often
+better to use an [Immediate After Statement](#immediate-after-statements)
+rather than providing an explicit delay of 0 or 1 cycle.
+
 #### Hook-Bound After Statements
 <pre>
 after <em>hookref</em>[-> (<em>msg1</em>, ... <em>msgN</em>)]: <em>method</em>(<em>e1</em>, ... <em>eM</em>);
@@ -3656,7 +3840,7 @@ after: <em>method</em>(<em>e1</em>, ... <em>eN</em>);
 </pre>
 
 In this form, the specified point in the future is when control is given back to
-the simulation engine such that the ongoing simulation of the current processor
+the simulation engine such that the ongoing simulation of the current CPU
 may progress, and would otherwise be ready to move onto the next cycle.
 This happens after all entries to devices on the call stack have been completed.
 
@@ -3671,13 +3855,22 @@ after statement is designed to execute the callback as promptly as possible
 while satisfying the semantics stated above, while `after 0 cycles: ...` is not.
 In particular, in Simics, callbacks delayed via `after 0 cycles` are always
 bound to the clock associated with the device instance, which is not always
-that of the processor currently under simulation &mdash; in such cases the
-simulated processor may progress indefinitely without the posted callback being
+that of the CPU currently under simulation &mdash; in such cases the
+simulated CPU may progress indefinitely without the posted callback being
 executed. The immediate after statement does not have this issue.
 In addition, if an immediate after statement is executed while the
 simulation is stopped (due to a device entry such as an attribute get/set
 performed from a script/CLI) then the callback is registered as *work*,
 thus guaranteeing that it is called before the simulation starts again.
+
+If an immediate after statement is executed during object configuration (as part
+of [`init()`](dml-builtins.html#init) or
+[`post_init()`](dml-builtins.html#post_init), or possibly `set()` of a
+[`register`](dml-builtins.html#register-objects)/[`attribute`](dml-builtins.html#attribute-objects)/[`connect`](dml-builtins.html#connect-objects)),
+then the callback will be executed through the `objects_finalized` Simics
+mechanism (see `class_info_t` in the *Simics API Reference Manual*), just after
+the automatic calls to `objects_finalized()` of the [`objects_finalized`
+template](dml-builtins.html#objects_finalized).
 
 Within a particular device instance, method calls suspended by immediate
 after statements are executed in order of least recently suspended; in other
@@ -3857,8 +4050,15 @@ assert <em>expr</em>;
 </pre>
 
 Evaluates *`expr`*. If the result is `true`, the
-statement has no effect; otherwise, a runtime-error is generated.
+statement has no effect; otherwise, a fatal runtime error is generated, aborting the current execution thread.
 *`expr`* must have type `bool`.
+
+> [!NOTE]
+>
+> DML guarantees that the assertion expression is evaluated, and that the
+> program terminates if the expression is false. This differs from the `assert`
+> construct in the C/C++ standard libraries, which can sometimes be optimized
+> out depending on build settings.
 
 ### Error Statements
 
@@ -4104,6 +4304,32 @@ independent method callback(int i, void *aux) {
 }
 ```
 
+### The Discard Reference (`_`)
+<a id="discard-reference"/>
+```
+_
+```
+
+The discard reference *`_`* is an expression without any run-time representation
+that may be used as the target of an assignment in order to explicitly discard
+the result of an evaluated expression or return value of a method call.
+
+Example usage:
+```
+// Evaluate an expression and explicitly discard its result.
+// Can be relevant to e.g. suppress Coverity's CHECKED_RETURN checker
+_ = nonthrowing_single_return_method();
+
+// Calls to methods that throw or have multiple return values require a target
+// for each return value. `_` can be used to discard return values not of
+// interest.
+_ = throwing_method();
+(_, x, _) = method_with_multiple_return_values();
+```
+
+The discard reference is related to the [discard
+identifier](#discard-identifier), and have some use-cases in common.
+
 ### New Expressions
 
 <pre>
@@ -4173,7 +4399,7 @@ mechanism for a specific template, e.g. to implement custom reset patterns.
 For example, the following can be used to reset all registers in the bank
 `regs`:
 ```
-foreach obj in (each hard_reset_t in (regs)) {
+foreach obj in (each hard_reset in (regs)) {
     obj.hard_reset();
 }
 ```
@@ -4181,6 +4407,23 @@ foreach obj in (each hard_reset_t in (regs)) {
 An `each`-`in` expression can currently only be used for
 iteration in a `foreach` statement. The expression's type
 is <code>sequence(<em>template-name</em>)</code>.
+
+An expression on the form `each ... in (this)` cannot be used directly inside a [shared method](#shared-methods): `each`-`in` relies on hierarchical information that is only available from compile-time object references, whereas the `this` expression in shared context evaluates to a run-time template reference. In order to loop hierarchically within a shared method, an indirection through a [typed parameter](#parameters-detailed) is therefore needed:
+```
+template hard_reset_children {
+    // add a template member
+    param each_hard_reset: sequence(hard_reset);
+    // The template member is assigned individually in each instance of
+    // the template, when the hierarchy of the instantiating object is known
+    param each_hard_reset = each hard_reset in (this);
+    // now, the template member can be referenced from a shared method
+    shared method hard_reset_children() {
+        foreach r in (this.each_hard_reset) {
+            r.hard_reset();
+        }
+    }
+}
+```
 
 An `each`-`in` expression searches recursively in the
 object hierarchy for objects implementing the template, but once it

@@ -13,9 +13,10 @@ import dml.globals
 from . import dmllex12
 from . import dmllex14
 from . import provisional
-from . import compat
+from . import breaking_changes
 
-assert lex.__version__ == yacc.__version__ == "3.4"
+assert lex.__version__ == yacc.__version__
+assert yacc.__version__ in {"3.4", "3.10", "3.11"}
 
 class UnexpectedEOF(Exception): pass
 
@@ -112,7 +113,7 @@ def track_lexspan():
     global site
     site = extended_site
 def start_site(site):
-    while isinstance(site, TemplateSite):
+    while isinstance(site, ExpandedSite):
         site = site.site
     assert lexspan_map
     if site not in lexspan_map:
@@ -120,7 +121,7 @@ def start_site(site):
     (start, _) = lexspan_map[site]
     return DumpableSite(site.file_info, start)
 def end_site(site):
-    while isinstance(site, TemplateSite):
+    while isinstance(site, ExpandedSite):
         site = site.site
     assert lexspan_map
     if site not in lexspan_map:
@@ -152,6 +153,59 @@ def parse_bitorder(t, syn):
 production_rules_dml12 = {}
 production_rules_dml14 = {}
 
+def mk_get_token(lexer):
+    '''Produces a wrapper over the lexer's token retrieval function, which must
+    be used as 'tokenfunc' when calling parse; see fixup_emptyprod_lexpos'''
+    lexer.latest_token = None
+    def get_token():
+        tok = lexer.token()
+        lexer.latest_token = tok
+        return tok
+    return get_token
+
+def fixup_emptyprod_lexpos(t):
+    '''
+    Must be called in every empty production rule to guarantee a sane lexpos
+    for it, and subsequently to guarantee sane sites for any production rules
+    that may rely on it.
+
+    Ply has *exceedingly* stupid behavior in that the lexpos it assigns to a
+    symbol yielded by an empty production is just wherever the lexer
+    happens to be at the time. Typically, that means it gets a lexpos
+    *just past* whatever token *follows* the produced symbol (the look-ahead),
+    which is absolute nonsense. This has messed up our sites since forever;
+    see SIMICS-23466.
+
+    The *actual* desired lexpos for a symbol from an empty production is at the
+    start of the next token (or EOF); i.e., the look-ahead.
+    That token will typically (always?) be the most recent one that got lexed.
+    (Ply does get weird once it encounters a parse error, arranging a
+    "lookahead stack," but the error() function we provide Ply is violent
+    enough to terminate parsing completely, so we have the luxury of not
+    needing to care.)
+
+    Hence, we hijack the function the parser uses to acquire tokens
+    (conveniently, Ply actually has an option for that) to stash the most
+    recently lexed token, and then we can use that token's lexpos to fix up the
+    lexpos of every empty production, fixing the problem at the source.
+
+    Ideally instead of peppering fixup_emptyprod_lexpos(t) all over the place
+    we'd have a check in the prod decorators such as to automatically augment
+    it onto any production rule that could yield empty. Unfortunately, that
+    breaks Ply completely. Y'see, Ply does not only rely on `.__doc__` and
+    `.__name__` of functions... but also `.__code__.co_firstlineno`. Brilliant.
+    '''
+    latest_tok = t.lexer.latest_token
+    if latest_tok is not None:
+        # HACK set_lexpos not available in Ply 3.4, so internals to the rescue.
+        # No matter; since Ply is unmaintained I can *definitively say* that
+        # this code is guaranteed to be compatible with all future versions of
+        # Ply!
+        # Haha...
+        sym = t.slice[0]
+        sym.lexpos = latest_tok.lexpos
+        sym.lineno = latest_tok.lineno
+
 def prod_dml12(f):
     '''Decorator for functions that should be used as production rules
     in the DML 1.2 grammar'''
@@ -177,6 +231,7 @@ def prod(f):
 @prod
 def top(t):
     'dml : maybe_provisional maybe_device maybe_bitorder device_statements'
+    stray_is_check(t[4])
     t[0] = ast.dml(site(t), t[2], t[4])
 
 
@@ -189,6 +244,7 @@ def maybe_provisional_yes(t):
 @prod
 def maybe_provisional_no(t):
     'maybe_provisional : '
+    fixup_emptyprod_lexpos(t)
 
 
 @prod
@@ -200,11 +256,13 @@ def maybe_device_yes(t):
 @prod
 def maybe_device_no(t):
     'maybe_device : '
+    fixup_emptyprod_lexpos(t)
     t[0] = None
 
 @prod
 def maybe_bitorder_no(t):
     'maybe_bitorder : '
+    fixup_emptyprod_lexpos(t)
     t.parser.file_info.bitorder = 'le'
 
 @prod
@@ -221,6 +279,7 @@ def device_statements(t):
 @prod
 def device_statements_empty(t):
     'device_statements : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
@@ -265,27 +324,31 @@ allowed_in_hashif = {
     'hook',
     'hashif',
     'error',
+    'in_each',
 }
 
 @prod_dml14
 def toplevel_if(t):
     '''toplevel_if : hashif LPAREN expression RPAREN \
                    LBRACE device_statements RBRACE toplevel_else'''
-    if all(stmt.kind in allowed_in_hashif for stmt in t[6] + t[8]):
-        t[0] = ast.hashif(site(t), t[3], t[6], t[8])
+    stray_is_check(t[6])
+    bad_stmts = [stmt for stmt in t[6] + t[8]
+                 if stmt.kind not in allowed_in_hashif]
+    if bad_stmts:
+        t[0] = ast.toplevel_if(site(t), t[3], t[6], t[8], bad_stmts)
     else:
-        report(WEXPERIMENTAL(site(t), ("top-level 'if' body with unsupported "
-                                       + "statements")))
-        t[0] = ast.toplevel_if(site(t), t[3], t[6], t[8])
+        t[0] = ast.hashif(site(t), t[3], t[6], t[8])
 
 @prod_dml14
 def toplevel_else_no(t):
     '''toplevel_else :'''
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
 def toplevel_else_body(t):
     '''toplevel_else : hashelse LBRACE device_statements RBRACE'''
+    stray_is_check(t[3])
     t[0] = t[3]
 
 @prod_dml14
@@ -297,12 +360,13 @@ def toplevel_else_if(t):
 
 @prod_dml12
 def object_anonymous_bank(t):
-    'object : BANK object_spec'
-    t[0] = ast.object_(site(t), None, 'bank', [], t[2])
+    'object : maybe_extension BANK object_spec'
+    t[0] = ast.object_(site(t), None, 'bank', [], None, t[3])
 
 @prod
 def array_list_empty(t):
     'array_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -312,9 +376,9 @@ def array_list(t):
 
 @prod
 def object_regarray(t):
-    'object : REGISTER objident array_list sizespec offsetspec maybe_istemplate object_spec'
-    t[0] = ast.object_(site(t), t[2], 'register', t[3],
-                       t[4] + t[5] + t[6] + t[7])
+    'object : maybe_extension REGISTER objident array_list sizespec offsetspec maybe_istemplate object_spec'
+    t[0] = ast.object_(site(t), t[3], 'register', t[4], t[1],
+                       t[5] + t[6] + t[7] + t[8])
 
 @prod
 def bitrangespec(t):
@@ -324,12 +388,13 @@ def bitrangespec(t):
 @prod
 def bitrangespec_empty(t):
     'bitrangespec :'
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
 def object_field(t):
-    'object : FIELD objident array_list bitrangespec maybe_istemplate object_spec'
-    t[0] = ast.object_(site(t), t[2], 'field', t[3], t[4] + t[5] + t[6])
+    'object : maybe_extension FIELD objident array_list bitrangespec maybe_istemplate object_spec'
+    t[0] = ast.object_(site(t), t[3], 'field', t[4], t[1], t[5] + t[6] + t[7])
 
 def endian_translate_bit(expr, width, bitorder):
     if bitorder == 'be':
@@ -368,14 +433,15 @@ def bitrange_2(t):
 
 @prod_dml12
 def object_field_1(t):
-    'object : FIELD objident bitrange maybe_istemplate object_spec'
+    'object : maybe_extension FIELD objident bitrange maybe_istemplate object_spec'
     if logging.show_porting:
-        report(PFIELDRANGE(site(t, 3)))
-    t[0] = ast.object_(site(t), t[2], 'field', [], t[3] + t[4] + t[5])
+        report(PFIELDRANGE(site(t, 4)))
+    t[0] = ast.object_(site(t), t[3], 'field', [], None, t[4] + t[5] + t[6])
 
 @prod_dml12
 def field_array_size_no(t):
     'fieldarraysize : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
@@ -384,7 +450,8 @@ def field_array_size(t):
     if t[4].kind != 'int' or t[4].args != (0,):
         report(EZRANGE(site(t, 4)))
     s = site(t)
-    t[0] = [(t[2], ast.binop(s, ast.int(s, 1), '+', t[6]))] + t[8]
+    t[0] = [(ast.variable(site(t, 2), t[2]),
+             ast.binop(s, ast.int(s, 1), '+', t[6]))] + t[8]
     if logging.show_porting:
         # j in 0..expr => j < expr + 1
         # We allow this conversion to be less polished than the
@@ -396,17 +463,17 @@ def field_array_size(t):
 
 @prod_dml12
 def object_field_2(t):
-    'object : FIELD objident fieldarraysize bitrangespec maybe_istemplate object_spec'
-    t[0] = ast.object_(site(t), t[2], 'field', t[3], t[4] + t[5] + t[6])
+    'object : maybe_extension FIELD objident fieldarraysize bitrangespec maybe_istemplate object_spec'
+    t[0] = ast.object_(site(t), t[3], 'field', t[4], None, t[5] + t[6] + t[7])
 
 @prod_dml14
-def data(t):
-    'data : SESSION'
+def session(t):
+    'session : SESSION'
     t[0] = t[1]
 
 @prod_dml12
-def data(t):
-    'data : DATA'
+def session(t):
+    'session : DATA'
     if logging.show_porting:
         report(PSESSION(site(t), 'data', 'session'))
     t[0] = t[1]
@@ -418,24 +485,26 @@ def object_session(t):
 
 @prod
 def session_decl(t):
-    'session_decl : data named_cdecl SEMI'
+    'session_decl : session named_cdecl SEMI'
     t[0] = ast.session(site(t), [t[2]], None)
 
 @prod
 def session_decl_init(t):
-    'session_decl : data named_cdecl EQUALS initializer SEMI'
+    'session_decl : session named_cdecl EQUALS initializer SEMI'
     t[0] = ast.session(site(t), [t[2]], t[4])
 
 @prod_dml14
 def session_decl_many(t):
-    'session_decl : data LPAREN cdecl_list_nonempty RPAREN SEMI'
-    cdecl_list_enforce_named(t[3])
+    'session_decl : session LPAREN cdecl_maybe_discarded_list_nonempty RPAREN SEMI'
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.session(site(t), t[3], None)
 
 @prod_dml14
 def session_decl_many_init(t):
-    'session_decl : data LPAREN cdecl_list_nonempty RPAREN EQUALS initializer SEMI'
-    cdecl_list_enforce_named(t[3])
+    'session_decl : session LPAREN cdecl_maybe_discarded_list_nonempty RPAREN EQUALS initializer SEMI'
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.session(site(t), t[3], t[6])
 
 @prod_dml14
@@ -455,32 +524,38 @@ def saved_decl_init(t):
 
 @prod_dml14
 def saved_decl_many(t):
-    'saved_decl : SAVED LPAREN cdecl_list_nonempty RPAREN SEMI'
-    cdecl_list_enforce_named(t[3])
+    'saved_decl : SAVED LPAREN cdecl_maybe_discarded_list_nonempty RPAREN SEMI'
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.saved(site(t), t[3], None)
 
 @prod_dml14
 def saved_decl_many_init(t):
-    'saved_decl : SAVED LPAREN cdecl_list_nonempty RPAREN EQUALS initializer SEMI'
-    cdecl_list_enforce_named(t[3])
+    'saved_decl : SAVED LPAREN cdecl_maybe_discarded_list_nonempty RPAREN EQUALS initializer SEMI'
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.saved(site(t), t[3], t[6])
 
 @prod
 def object3(t):
-    '''object : CONNECT   objident array_list maybe_istemplate object_spec
-              | INTERFACE objident array_list maybe_istemplate object_spec
-              | ATTRIBUTE objident array_list maybe_istemplate object_spec
-              | BANK      objident array_list maybe_istemplate object_spec
-              | EVENT     objident array_list maybe_istemplate object_spec
-              | GROUP     objident array_list maybe_istemplate object_spec
-              | PORT      objident array_list maybe_istemplate object_spec
-              | IMPLEMENT objident array_list maybe_istemplate object_spec'''
-    t[0] = ast.object_(site(t), t[2], t[1], t[3], t[4] + t[5])
+    '''object : maybe_extension CONNECT   objident array_list maybe_istemplate object_spec
+              | maybe_extension INTERFACE objident array_list maybe_istemplate object_spec
+              | maybe_extension ATTRIBUTE objident array_list maybe_istemplate object_spec
+              | maybe_extension BANK      objident array_list maybe_istemplate object_spec
+              | maybe_extension EVENT     objident array_list maybe_istemplate object_spec
+              | maybe_extension GROUP     objident array_list maybe_istemplate object_spec
+              | maybe_extension PORT      objident array_list maybe_istemplate object_spec
+              | maybe_extension IMPLEMENT objident array_list maybe_istemplate object_spec'''
+    array_spec = t[4]
+    if array_spec and t[2] in {'interface', 'implement'}:
+        report(ESYNTAX(site(t, 4), '[', f'{t[2]} array not allowed'))
+        array_spec = []
+    t[0] = ast.object_(site(t), t[3], t[2], array_spec, t[1], t[5] + t[6])
 
 @prod_dml14
 def object_subdevice(t):
-    '''object : SUBDEVICE objident array_list maybe_istemplate object_spec'''
-    t[0] = ast.object_(site(t), t[2], t[1], t[3], t[4] + t[5])
+    '''object : maybe_extension SUBDEVICE objident array_list maybe_istemplate object_spec'''
+    t[0] = ast.object_(site(t), t[3], t[2], t[4], t[1], t[5] + t[6])
 
 @prod_dml12
 def maybe_extern_yes(t):
@@ -490,6 +565,7 @@ def maybe_extern_yes(t):
 @prod_dml12
 def maybe_extern_no(t):
     '''maybe_extern :'''
+    fixup_emptyprod_lexpos(t)
     t[0] = False
 
 @prod
@@ -500,6 +576,7 @@ def maybe_default_yes(t):
 @prod
 def maybe_default_no(t):
     '''maybe_default :'''
+    fixup_emptyprod_lexpos(t)
     t[0] = False
 
 
@@ -534,8 +611,7 @@ def object_method_noinparams(t):
     name = t[3]
     (inp, outp, throws) = ([], t[4], True)
     if logging.show_porting:
-        i = min([4, 5, 6], key=lambda i: t.lexpos(i))
-        report(PINPARAMLIST(site(t, i)))
+        report(PINPARAMLIST(site(t, 4)))
     if logging.show_porting and outp:
         (start, end) = t.lexspan(6)
         [stmts, _] = t[6].args
@@ -546,12 +622,12 @@ def object_method_noinparams(t):
     body = t[6]
     t[0] = ast.method(site(t), name,
                       (inp, outp, throws, [], body),
-                      t[5], t[2], lex_end_site(t, -1))
+                      t[5], t[2], False, lex_end_site(t, -1))
 
 
 @prod_dml12
 def object_method(t):
-    '''method : METHOD maybe_extern objident LPAREN cdecl_or_ident_list RPAREN method_outparams maybe_nothrow maybe_default compound_statement'''
+    '''method : METHOD maybe_extern objident LPAREN cdecl_maybe_discarded_or_ident_list RPAREN method_outparams maybe_nothrow maybe_default compound_statement'''
     name = t[3]
     inp = t[5]
     outp = t[7]
@@ -560,7 +636,7 @@ def object_method(t):
         # some standard methods are assigned a type later on
         if name not in {'set', 'write'}:
             report(PINLINEDECL(site(t), 'method', 'inline method'))
-        for (_, decl_site, argname, typ) in inp:
+        for (_, decl_site, (_, _, argname), typ) in inp:
             if not typ:
                 report(PINLINEDECL(decl_site, argname, 'inline ' + argname))
     if logging.show_porting and outp:
@@ -573,7 +649,7 @@ def object_method(t):
     body = t[10]
     t[0] = ast.method(site(t), name,
                       (inp, outp, throws, [], body),
-                      t[9], t[2], lex_end_site(t, -1))
+                      t[9], t[2], False, lex_end_site(t, -1))
 
 
 def method_qualifiers_check(site, qualifiers, inp, outp, throws, default):
@@ -598,22 +674,48 @@ def method_qualifiers_check(site, qualifiers, inp, outp, throws, default):
                            "startup methods may not be declared 'default'"))
     return (inp, outp)
 
+@prod_dml14
+def maybe_colon_yes(t):
+    '''maybe_colon : COLON'''
+    if not site(t).provisional_enabled(provisional.explicit_method_decls):
+        report(ESYNTAX(site(t), ':', "expected '{' or 'default'"))
+        t[0] = False
+    else:
+        t[0] = True
+
+@prod
+def maybe_colon_no(t):
+    '''maybe_colon : '''
+    fixup_emptyprod_lexpos(t)
+    t[0] = False
 
 @prod_dml14
 def object_method(t):
-    '''method : method_qualifiers METHOD objident method_params_typed maybe_default compound_statement'''
+    '''method : method_qualifiers METHOD objident method_params_typed maybe_colon maybe_default compound_statement'''
     name = t[3]
     (inp, outp, throws) = t[4]
-    body = t[6]
+    body = t[7]
     (inp, outp) = method_qualifiers_check(site(t), t[1], inp, outp, throws,
-                                          t[5])
+                                          t[6])
     t[0] = ast.method(site(t), name,
                       (inp, outp, throws, t[1], body),
-                      t[5], False, lex_end_site(t, -1))
+                      t[6], False, t[5], lex_end_site(t, -1))
+
+@prod_dml14
+def object_method_abstract(t):
+    '''method : method_qualifiers METHOD objident method_params_typed SEMI'''
+    name = t[3]
+    (inp, outp, throws) = t[4]
+    body = None
+    (inp, outp) = method_qualifiers_check(site(t), t[1], inp, outp, throws,
+                                          False)
+    t[0] = ast.method(site(t), name,
+                      (inp, outp, throws, t[1], body),
+                      True, False, None, site(t, 5))
 
 @prod_dml14
 def object_inline_method(t):
-    '''method : INLINE METHOD objident method_params_maybe_untyped maybe_default compound_statement'''
+    '''method : INLINE METHOD objident method_params_maybe_untyped maybe_colon maybe_default compound_statement'''
     name = t[3]
     (inp, outp, throws) = t[4]
     if all(typ for (_, asite, name, typ) in inp):
@@ -621,16 +723,16 @@ def object_inline_method(t):
         # We forbid it as a way to strongly discourage unneeded use of inline.
         report(ESYNTAX(site(t, 2), 'inline',
                        'only use inline if there are untyped arguments'))
-    body = t[6]
+    body = t[7]
     t[0] = ast.method(site(t), name,
                       (inp, outp, throws, [], body),
-                      t[5], False, lex_end_site(t, -1))
+                      t[6], False, t[5], lex_end_site(t, -1))
 
 
 @prod_dml12
 def arraydef1(t):
     '''arraydef : expression'''
-    t[0] = ('i', t[1])
+    t[0] = (ast.variable(site(t), 'i'), t[1])
     if logging.show_porting:
         report(PARRAY_I(site(t)))
 
@@ -640,7 +742,8 @@ def arraydef2(t):
     if t[3].kind != 'int' or t[3].args != (0,):
         report(EZRANGE(site(t, 3)))
     s = site(t)
-    t[0] = (t[1], ast.binop(s, ast.int(s, 1), '+', t[5]))
+    t[0] = (ast.variable(site(t, 1), t[1]),
+            ast.binop(s, ast.int(s, 1), '+', t[5]))
     if logging.show_porting:
         if t[5].kind == 'int':
             # j in 0..4 => j < 5
@@ -662,12 +765,12 @@ def arraydef2(t):
 
 @prod_dml14
 def arraydef(t):
-    '''arraydef : ident LT expression'''
+    '''arraydef : ident_or_discard LT expression'''
     t[0] = (t[1], t[3])
 
 @prod_dml14
 def arraydef_implicit(t):
-    '''arraydef : ident LT ELLIPSIS'''
+    '''arraydef : ident_or_discard LT ELLIPSIS'''
     t[0] = (t[1], None)
 
 # Traits
@@ -681,6 +784,7 @@ def toplevel_trait(t):
 @prod_dml12
 def trait_stmts_none(t):
     '''trait_stmts : '''
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
@@ -709,6 +813,7 @@ def trait_session(t):
 @prod_dml14
 def template_stmts_none(t):
     '''template_stmts : '''
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
@@ -724,12 +829,13 @@ def template_statement_obj(t):
 @prod_dml14
 def template_statement_shared_method(t):
     '''template_stmt : SHARED method_qualifiers METHOD shared_method'''
-    (name, (inp, outp, throws), overridable, body, rbrace_site) = t[4]
+    (name, (inp, outp, throws), overridable, explicit_decl, body,
+     rbrace_site) = t[4]
     default = overridable and body is not None
     (inp, outp) = method_qualifiers_check(site(t), t[2], inp, outp, throws,
                                           default)
     t[0] = [ast.sharedmethod(site(t), name, inp, outp, throws, t[2],
-                             overridable, body, rbrace_site)]
+                             overridable, explicit_decl, body, rbrace_site)]
 
 @prod_dml14
 def template_statement_shared_hook(t):
@@ -754,28 +860,31 @@ def method_qualifiers(t):
                          | INDEPENDENT
                          | INDEPENDENT STARTUP
                          | INDEPENDENT STARTUP MEMOIZED'''
+    if len(t) == 1:
+        fixup_emptyprod_lexpos(t)
     t[0] = list(itertools.islice(t, 1, None))
 
 @prod_dml12
 def trait_method(t):
     '''trait_method : METHOD shared_method'''
-    (name, (inp, outp, throws), overridable, body, rbrace_site) = t[2]
+    (name, (inp, outp, throws), overridable, explicit_decl, body,
+     rbrace_site) = t[2]
     t[0] = ast.sharedmethod(site(t), name, inp, outp, throws, [], overridable,
-                            body, rbrace_site)
+                            explicit_decl, body, rbrace_site)
 
 @prod
 def shared_method_abstract(t):
     '''shared_method : ident method_params_typed SEMI'''
-    t[0] = (t[1], t[2], True, None, site(t, 3))
+    t[0] = (t[1], t[2], True, False, None, site(t, 3))
 @prod
 def shared_method_default(t):
-    '''shared_method : ident method_params_typed DEFAULT compound_statement'''
-    t[0] = (t[1], t[2], True, t[4], lex_end_site(t, -1))
+    '''shared_method : ident method_params_typed maybe_colon DEFAULT compound_statement'''
+    t[0] = (t[1], t[2], True, t[3], t[5], lex_end_site(t, -1))
 
 @prod
 def shared_method_final(t):
-    '''shared_method : ident method_params_typed compound_statement'''
-    t[0] = (t[1], t[2], False, t[3], lex_end_site(t, -1))
+    '''shared_method : ident method_params_typed maybe_colon compound_statement'''
+    t[0] = (t[1], t[2], False, t[3], t[4], lex_end_site(t, -1))
 
 @prod_dml12
 def trait_param(t):
@@ -795,7 +904,8 @@ def template(t):
     'toplevel : TEMPLATE objident maybe_istemplate LBRACE template_stmts RBRACE'
     ises = [s for s in t[5] if s.kind == 'is']
     shared_methods = [s for s in t[5] if s.kind == 'sharedmethod']
-    if ises and shared_methods:
+    stray_is = stray_is_check(t[5])
+    if not stray_is and ises and shared_methods:
         report(WTEMPLATEIS(ises[0].site))
     t[0] = ast.template(site(t), t[2], t[3] + t[5])
 
@@ -834,12 +944,12 @@ def constant(t):
 
 @prod_dml12
 def extern(t):
-    'toplevel : EXTERN cdecl_or_ident SEMI'
-    t[0] = ast.extern(site(t), t[2])
+    'toplevel : EXTERN cdecl_maybe_discarded_or_ident SEMI'
+    t[0] = ast.extern(site(t), cdecl_enforce_not_discarded(t[2]))
 
 @prod_dml14
 def extern(t):
-    'toplevel : EXTERN cdecl SEMI'
+    'toplevel : EXTERN named_cdecl SEMI'
     t[0] = ast.extern(site(t), t[2])
 
 @prod
@@ -876,7 +986,35 @@ def object_desc(t):
 @prod
 def object_desc_none(t):
     'object_desc :'
+    fixup_emptyprod_lexpos(t)
     t[0] = []
+
+@prod_dml14
+def maybe_extension_yes(t):
+    'maybe_extension : IN'
+    if not site(t).provisional_enabled(
+            provisional.explicit_object_extensions):
+        report(ESYNTAX(site(t), 'in', None))
+        t[0] = None
+    else:
+        t[0] = True
+
+@prod_dml14
+def maybe_extension_no(t):
+    'maybe_extension : '
+    fixup_emptyprod_lexpos(t)
+    enabled = (provisional.explicit_object_extensions
+               in t.parser.file_info.provisional)
+    t[0] = False if enabled else None
+
+# Note that `maybe_extension` is used even in DML 1.2 exclusive rules, which
+# may seem redundant, but no! Removing those uses would lead to shift/reduce
+# conflicts.
+@prod_dml12
+def maybe_extension(t):
+    'maybe_extension : '
+    fixup_emptyprod_lexpos(t)
+    t[0] = None
 
 @prod
 def object_spec_none(t):
@@ -886,6 +1024,7 @@ def object_spec_none(t):
 @prod
 def object_spec(t):
     'object_spec : object_desc LBRACE object_statements RBRACE'
+    stray_is_check(t[3])
     t[0] = t[1] + t[3]
 
 @prod
@@ -896,7 +1035,42 @@ def object_statements(t):
 @prod
 def object_statements_empty(t):
     'object_statements : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
+
+def stray_is_check(body):
+    '''Checks a block for any standalone 'is' declared following an object
+    declaration which looks like it was meant to affect that object
+    declaration, and warns for each such 'is' found.
+
+    Returns True if a warning was emitted this way.
+
+    Use this directly on a list of statements yielded by a
+    'object_statements', 'device_statements' or 'template_stmts' symbol,
+    before any manipulation of that list. Otherwise this may yield false
+    positives or negatives.
+    '''
+    some_stray_is = False
+    for (i, stmt) in enumerate(body):
+        if stmt.kind == 'object':
+            (_, obj_type, _, _, obj_body) = stmt.args
+            rough_end_site = obj_body[-1].site if obj_body else stmt.site
+            j = i + 1
+            while j < len(body):
+                other_stmt = body[j]
+                other_site = other_stmt.site
+
+                if (other_stmt.kind == 'is'
+                    and (other_site.lineno == rough_end_site.lineno
+                         or other_site.colno > stmt.site.colno)):
+                    report(WSTRAYIS(other_site, obj_type))
+                    some_stray_is = True
+                else:
+                    break
+
+                j += 1
+
+    return some_stray_is
 
 @prod
 def object_statement(t):
@@ -954,6 +1128,7 @@ def object_statement_or_typedparam(t):
 @prod_dml14
 def in_each(t):
     'in_each : IN EACH istemplate_list LBRACE object_statements RBRACE'
+    stray_is_check(t[5])
     t[0] = ast.in_each(site(t), [tpl for (_, tpl) in t[3]], t[5])
 
 def validate_if_body(stmts):
@@ -964,14 +1139,9 @@ def validate_if_body(stmts):
     for stmt in stmts:
         if stmt.kind in allowed_in_hashif:
             result.append(stmt)
-        elif stmt.kind == 'param':
-            report(ECONDP(stmt.site))
-        elif stmt.kind == 'is':
-            report(ECONDT(stmt.site))
-        elif stmt.kind == 'in_each':
-            report(ECONDINEACH(stmt.site))
         else:
-            raise ICE(stmt.site, 'unknown kind %r' % (stmt.kind,))
+            assert stmt.kind in {'param', 'is'}
+            report(EBADCONDSTMT(stmt.site, stmt.kind))
     return result
 
 @prod_dml12
@@ -1008,16 +1178,19 @@ def hashelse_nohash(t):
 def object_if(t):
     '''object_if : hashif LPAREN expression RPAREN \
                    LBRACE object_statements RBRACE object_else'''
+    stray_is_check(t[6])
     t[0] = ast.hashif(site(t), t[3], validate_if_body(t[6]), t[8])
 
 @prod
 def object_else_no(t):
     '''object_else :'''
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
 def object_else_body(t):
     '''object_else : hashelse LBRACE object_statements RBRACE'''
+    stray_is_check(t[3])
     t[0] = validate_if_body(t[3])
 
 @prod
@@ -1101,54 +1274,80 @@ def paramspec_default(t):
 @prod
 def method_outparams_none(t):
     'method_outparams : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
 def method_outparams_some(t):
-    'method_outparams : ARROW LPAREN cdecl_or_ident_list RPAREN'
+    'method_outparams : ARROW LPAREN cdecl_maybe_discarded_or_ident_list RPAREN'
+    cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = t[3]
 
 @prod_dml14
 def method_outparams_some(t):
-    'method_outparams : ARROW LPAREN cdecl_list RPAREN'
+    'method_outparams : ARROW LPAREN cdecl_maybe_discarded_list RPAREN'
     for (i, (kind, psite, name, typ)) in enumerate(t[3]):
         if name:
             # It would be logical to just use ESYNTAX here, but be nicer
             # because this is a very common mistake until 1.2 is
             # deprecated
-            report(ERETARGNAME(psite, name))
-            t[3][i] = ast.cdecl(psite, None, typ)
+            report(ERETARGNAME(
+                psite, name.args[0] if name.kind == 'variable' else '_'))
+        t[3][i] = ast.cdecl(psite, None, typ)
     t[0] = t[3]
 
 @prod_dml14
 def method_params_maybe_untyped(t):
-    'method_params_maybe_untyped : LPAREN cdecl_or_ident_list RPAREN method_outparams throws'
+    'method_params_maybe_untyped : LPAREN cdecl_maybe_discarded_or_ident_list RPAREN method_outparams throws'
     t[0] = (t[2], t[4], t[5])
 
 
-def cdecl_list_enforce_unnamed(decls):
-    for (kind, psite, name, _) in decls:
-        assert kind == 'cdecl'
-        if name:
-            report(ESYNTAX(psite, name, ''))
-
-def cdecl_list_enforce_named(decls):
+def cdecl_maybe_discarded_list_enforce_unnamed(decls):
     for (i, (kind, psite, name, typ)) in enumerate(decls):
-        assert kind == 'cdecl'
+        assert kind == 'cdecl_maybe_discarded'
+        if name:
+            report(ESYNTAX(
+                psite, name.args[0] if name.kind == 'variable' else '_', ''))
+        decls[i] = ast.cdecl(psite, None, typ)
+
+def cdecl_maybe_discarded_list_enforce_named(decls):
+    for (i, (kind, psite, name, typ)) in enumerate(decls):
+        assert kind == 'cdecl_maybe_discarded', kind
         if not name:
             report(ESYNTAX(psite, None,
                            'name omitted in parameter declaration'))
-            decls[i] = ast.cdecl(psite, '_name_omitted%d' % (i,), typ)
+            decls[i] = ast.cdecl_maybe_discarded(
+                psite,
+                ast.variable(psite, '_name_omitted%d' % (i,)),
+                typ)
+
+def cdecl_enforce_not_discarded(decl):
+    (kind, psite, ident, typ) = decl
+    assert kind == 'cdecl_maybe_discarded'
+    if ident is None:
+        name = None
+    elif ident.kind == 'discard':
+        discard_error(psite)
+        name = '__'
+    else:
+        assert ident.kind == 'variable', ident.kind
+        name = ident.args[0]
+    return ast.cdecl(psite, name, typ)
+
+def cdecl_maybe_discarded_list_enforce_not_discarded(decls):
+    for (i, decl) in enumerate(decls):
+        decls[i] = cdecl_enforce_not_discarded(decl)
 
 @prod
 def method_params_typed(t):
-    'method_params_typed : LPAREN cdecl_list RPAREN method_outparams throws'
-    cdecl_list_enforce_named(t[2])
+    'method_params_typed : LPAREN cdecl_maybe_discarded_list RPAREN method_outparams throws'
+    cdecl_maybe_discarded_list_enforce_named(t[2])
     t[0] = (t[2], t[4], t[5])
 
 @prod_dml12
 def maybe_nothrow_throws(t):
     'maybe_nothrow : '
+    fixup_emptyprod_lexpos(t)
     t[0] = True
 
 @prod_dml12
@@ -1166,6 +1365,7 @@ def throws(t):
 @prod
 def throws_not(t):
     'throws : '
+    fixup_emptyprod_lexpos(t)
     t[0] = False
 
 # Method arguments
@@ -1173,6 +1373,7 @@ def throws_not(t):
 @prod_dml12
 def returnargs_empty(t):
     'returnargs : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
@@ -1184,6 +1385,7 @@ def returnargs(t):
 @prod
 def maybe_istemplate_no(t):
     'maybe_istemplate : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -1215,6 +1417,7 @@ def sizespec(t):
 @prod
 def sizespec_empty(t):
     'sizespec : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 # The shorthand offset of a register
@@ -1226,12 +1429,13 @@ def offsetspec(t):
 @prod
 def offsetspec_empty(t):
     'offsetspec : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 # A C-like declaration, or a simple name
 @prod_dml12
-def cdecl_or_ident_decl(t):
-    '''cdecl_or_ident : cdecl'''
+def cdecl_maybe_discarded_or_ident_decl(t):
+    '''cdecl_maybe_discarded_or_ident : cdecl_maybe_discarded'''
     (_, site, name, typ) = t[1]
     if name:
         t[0] = t[1]
@@ -1239,48 +1443,60 @@ def cdecl_or_ident_decl(t):
         # Hack: a single identifier is parsed as an anonymous
         # parameter; i.e., a simple type ident with no name attached
         # to it. We convert that to an untyped identifier.
-        t[0] = ast.cdecl(site, typ[0], None)
+        t[0] = ast.cdecl_maybe_discarded(site,
+                                         ast.variable(site, typ[0]),
+                                         None)
     else:
         raise ESYNTAX(site, None, "missing parameter name")
 
 @prod_dml14
-def cdecl_or_ident_decl(t):
-    '''cdecl_or_ident : named_cdecl'''
+def cdecl_maybe_discarded_or_ident_decl(t):
+    '''cdecl_maybe_discarded_or_ident : named_cdecl_maybe_discarded'''
     t[0] = t[1]
 
 @prod_dml14
-def cdecl_or_ident_inline(t):
-    '''cdecl_or_ident : INLINE ident'''
-    t[0] = ast.cdecl(site(t), t[2], None)
+def cdecl_maybe_discarded_or_ident_inline(t):
+    '''cdecl_maybe_discarded_or_ident : INLINE ident'''
+    t[0] = ast.cdecl_maybe_discarded(site(t),
+                                     ast.variable(site(t, 2), t[2]),
+                                     None)
 
 # A C-like declaration with required identifier name
 @prod
-def named_cdecl(t):
-    '''named_cdecl : cdecl'''
+def named_cdecl_maybe_discarded(t):
+    '''named_cdecl_maybe_discarded : cdecl_maybe_discarded'''
     _, site, name, typ = t[1]
 
     if name:
         t[0] = t[1]
     else:
         report(ESYNTAX(site, None, "missing name in declaration"))
-        t[0] = ast.cdecl(site, '_name_omitted', typ)
+        t[0] = ast.cdecl_maybe_discarded(site,
+                                         ast.variable(site, '_name_omitted'),
+                                         typ)
+
+@prod
+def named_cdecl(t):
+    '''named_cdecl : named_cdecl_maybe_discarded'''
+    t[0] = cdecl_enforce_not_discarded(t[1])
+
 
 # A C-like declaration
 @prod
-def cdecl(t):
-    '''cdecl : basetype cdecl2'''
+def cdecl_maybe_discarded(t):
+    '''cdecl_maybe_discarded : basetype cdecl2'''
     # t[2] is a list of modifiers, innermost last
-    name = t[2][-1]
+    ident = t[2][-1]
     info = [t[1]] + t[2][:-1]
-    t[0] = ast.cdecl(site(t), name, info)
+    t[0] = ast.cdecl_maybe_discarded(site(t), ident, info)
 
 @prod
-def cdecl_const(t):
-    '''cdecl : CONST basetype cdecl2'''
-    # t[2] is a list of modifiers, innermost last
-    name = t[3][-1]
+def cdecl_maybe_discarded_const(t):
+    '''cdecl_maybe_discarded : CONST basetype cdecl2'''
+    # t[3] is a list of modifiers, innermost last
+    ident = t[3][-1]
     info = [t[2], 'const'] + t[3][:-1]
-    t[0] = ast.cdecl(site(t), name, info)
+    t[0] = ast.cdecl_maybe_discarded(site(t), ident, info)
 
 @prod_dml14
 def basetype(t):
@@ -1309,8 +1525,8 @@ def basetype_each(t):
 
 @prod_dml14
 def basetype_hook(t):
-    '''basetype : HOOK LPAREN cdecl_list RPAREN'''
-    cdecl_list_enforce_unnamed(t[3])
+    '''basetype : HOOK LPAREN cdecl_maybe_discarded_list RPAREN'''
+    cdecl_maybe_discarded_list_enforce_unnamed(t[3])
     t[0] = ('hook', t[3])
 
 @prod
@@ -1332,7 +1548,7 @@ def cdecl2_ptr(t):
 def cdecl2_vect(t):
     'cdecl2 : VECT cdecl2'
     if provisional.simics_util_vect not in t.parser.file_info.provisional:
-        if compat.experimental_vect in dml.globals.enabled_compat:
+        if not breaking_changes.vect_needs_provisional.enabled:
             vsite = site(t)
             if vsite.dml_version() != (1, 2):
                 # defensively suppress warning in 1.2, for
@@ -1348,16 +1564,17 @@ def cdecl3(t):
     # The declaration 'data int int;' is also accepted, but gives
     # invalid C code.
     'cdecl3 : typeident'
-    t[0] = [t[1]]
+    t[0] = [ast.variable(site(t, 1), t[1])]
 
 @prod_dml14
 def cdecl3(t):
-    'cdecl3 : ident'
+    'cdecl3 : ident_or_discard'
     t[0] = [t[1]]
 
 @prod
 def cdecl3_empty(t):
     'cdecl3 : '
+    fixup_emptyprod_lexpos(t)
     t[0] = [None]
 
 @prod
@@ -1367,7 +1584,7 @@ def cdecl3_arr(t):
 
 @prod
 def cdecl3_fun(t):
-    'cdecl3 : cdecl3 LPAREN cdecl_list_opt_ellipsis RPAREN'
+    'cdecl3 : cdecl3 LPAREN cdecl_maybe_discarded_list_opt_ellipsis RPAREN'
     t[0] = ['funcall', t[3]] + t[1]
 
 @prod
@@ -1377,61 +1594,62 @@ def cdecl3_par(t):
 
 # A comma-separated cdecl list, used in function parameter lists
 @prod
-def cdecl_list_empty(t):
-    'cdecl_list : '
+def cdecl_maybe_discarded_list_empty(t):
+    'cdecl_maybe_discarded_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
-def cdecl_list_nonempty(t):
-    'cdecl_list : cdecl_list_nonempty'
+def cdecl_maybe_discarded_list_nonempty(t):
+    'cdecl_maybe_discarded_list : cdecl_maybe_discarded_list_nonempty'
     t[0] = t[1]
 
 @prod
-def cdecl_list_one(t):
-    'cdecl_list_nonempty : cdecl'
+def cdecl_maybe_discarded_list_one(t):
+    'cdecl_maybe_discarded_list_nonempty : cdecl_maybe_discarded'
     t[0] = [t[1]]
 
 @prod
-def cdecl_list_many(t):
-    '''cdecl_list_nonempty : cdecl_list_nonempty COMMA cdecl'''
+def cdecl_maybe_discarded_list_many(t):
+    '''cdecl_maybe_discarded_list_nonempty : cdecl_maybe_discarded_list_nonempty COMMA cdecl_maybe_discarded'''
     t[0] = t[1] + [t[3]]
 
 # Variant that allows ELLIPSIS in the end
 @prod
-def cdecl_list_opt_ellipsis(t):
-    '''cdecl_list_opt_ellipsis : cdecl_list
-                               | cdecl_list_ellipsis'''
-    t[0] = t[1]
+def cdecl_maybe_discarded_list_opt_ellipsis_no(t):
+    'cdecl_maybe_discarded_list_opt_ellipsis : cdecl_maybe_discarded_list'
+    t[0] = (t[1], False)
 
 @prod
-def cdecl_list_ellipsis_only(t):
-    'cdecl_list_ellipsis : ELLIPSIS'
-    t[0] = [t[1]]
+def cdecl_maybe_discarded_list_opt_ellipsis_only(t):
+    'cdecl_maybe_discarded_list_opt_ellipsis : ELLIPSIS'
+    t[0] = ([], True)
 
 @prod
-def cdecl_list_ellipsis_last(t):
-    'cdecl_list_ellipsis : cdecl_list_nonempty COMMA ELLIPSIS'
-    t[0] = t[1] + [t[3]]
+def cdecl_maybe_discarded_list_opt_tellipsis_last(t):
+    'cdecl_maybe_discarded_list_opt_ellipsis : cdecl_maybe_discarded_list_nonempty COMMA ELLIPSIS'
+    t[0] = (t[1], True)
 
-# A comma-separated cdecl_or_ident list, used in method parameter lists
+# A comma-separated cdecl_maybe_discarded_or_ident list, used in method parameter lists
 @prod
-def cdecl_or_ident_list_empty(t):
-    'cdecl_or_ident_list : '
+def cdecl_maybe_discarded_or_ident_list_empty(t):
+    'cdecl_maybe_discarded_or_ident_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
-def cdecl_or_ident_list_nonempty(t):
-    'cdecl_or_ident_list : cdecl_or_ident_list2'
+def cdecl_maybe_discarded_or_ident_list_nonempty(t):
+    'cdecl_maybe_discarded_or_ident_list : cdecl_maybe_discarded_or_ident_list2'
     t[0] = t[1]
 
 @prod
-def cdecl_or_ident_list2_one(t):
-    'cdecl_or_ident_list2 : cdecl_or_ident'
+def cdecl_maybe_discarded_or_ident_list2_one(t):
+    'cdecl_maybe_discarded_or_ident_list2 : cdecl_maybe_discarded_or_ident'
     t[0] = [t[1]]
 
 @prod
-def cdecl_or_ident_list2(t):
-    'cdecl_or_ident_list2 : cdecl_or_ident_list2 COMMA cdecl_or_ident'
+def cdecl_maybe_discarded_or_ident_list2(t):
+    'cdecl_maybe_discarded_or_ident_list2 : cdecl_maybe_discarded_or_ident_list2 COMMA cdecl_maybe_discarded_or_ident'
     t[0] = t[1] + [t[3]]
 
 @prod
@@ -1442,7 +1660,13 @@ def typeof(t):
 def check_struct_namecoll(member_decls):
     sites_by_name = {}
     for decl in member_decls:
-        (name, _) = decl.args
+        if decl.kind == 'cdecl':
+            (name, _) = decl.args
+        else:
+            (ident, _) = decl.args
+            if ident.kind == 'discard':
+                continue
+            (name,) = ident.args
         if name in sites_by_name:
             report(ENAMECOLL(decl.site, sites_by_name[name], name))
         else:
@@ -1462,6 +1686,7 @@ def struct_decls(t):
 @prod
 def struct_decls_empty(t):
     'struct_decls : '
+    fixup_emptyprod_lexpos(t)
     t[0] = ()
 
 @prod
@@ -1472,14 +1697,21 @@ def layout_decl(t):
         field_names = set()
         fields = []
         for cdecl in t[4]:
-            (name, typ) = cdecl.args
-            if name in field_names:
-                while (name in field_names
-                       or any(name == d.args[0] for d in t[4])):
-                    name = '_' + name
-                cdecl = ast.cdecl(cdecl.site, name, typ)
+            (ident, typ) = cdecl.args
+            if ident.kind == 'variable':
+                (name,) = ident.args
+                if name in field_names:
+                    while (name in field_names
+                           or any(name == d.args[0].args[0]
+                                  for d in t[4]
+                                  if d.args[0].kind == 'variable')):
+                        name = '_' + name
+                    cdecl = ast.cdecl_maybe_discarded(
+                        cdecl.site,
+                        ast.variable(ident.site, name),
+                        typ)
+                field_names.add(name)
             fields.append(cdecl)
-            field_names.add(name)
     else:
         fields = t[4]
         check_struct_namecoll(fields)
@@ -1496,12 +1728,13 @@ def layout(t):
 
 @prod
 def layout_decls(t):
-    'layout_decls : layout_decls named_cdecl SEMI'
+    'layout_decls : layout_decls named_cdecl_maybe_discarded SEMI'
     t[0] = t[1] + (t[2],)
 
 @prod
 def layout_decls_empty(t):
     'layout_decls : '
+    fixup_emptyprod_lexpos(t)
     t[0] = ()
 
 @prod
@@ -1547,22 +1780,19 @@ def bitfield_range_2(t):
 @prod
 def bitfields_decls_empty(t):
     'bitfields_decls : '
+    fixup_emptyprod_lexpos(t)
     t[0] = ()
 
 # ctypedecl is a type without any declared variable
 @prod
 def ctypedecl(t):
-    'ctypedecl : const_opt basetype ctypedecl_ptr'
+    'ctypedecl : const_opt basetype stars'
     t[0] = [t[2]] + t[1] + t[3]
-
-@prod
-def ctypedecl_ptr(t):
-    'ctypedecl_ptr : stars ctypedecl_array'
-    t[0] = t[2] + t[1]
 
 @prod
 def stars_empty(t):
     'stars : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -1575,28 +1805,12 @@ def stars(t):
     'stars : TIMES stars'
     t[0] = t[2] + ['pointer']
 
-# This rule is in conflict with p_expression_new_array, so leave it
-# out for now
-#
-#@prod
-#def ctypedecl_array(t):
-#    'ctypedecl_array : ctypedecl_array LBRACKET RBRACKET'
-#    t[0] = t[1] + ['array', None]
-
-@prod
-def ctypedecl_array_simple(t):
-    'ctypedecl_array : ctypedecl_simple'
-    t[0] = t[1]
-
-@prod
-def ctypedecl_simple_par(t):
-    'ctypedecl_simple : LPAREN ctypedecl_ptr RPAREN'
-    t[0] = t[2]
-
-@prod
-def ctypedecl_simple_none(t):
-    'ctypedecl_simple : ' # no variable here
-    t[0] = []
+# TODO We'd like rules to have ctypedecl be able to handle function pointers
+# and array types. Doing so naively would result in grammar conflicts, however.
+# Putting in the work to solve that *would* be worth the effort -- *if* you're
+# doing it in an effort to unify ctypedecl with cdecl. Any work poured into
+# ctypedecl that still has it remain entirely seperate from cdecl is likely not
+# worth it.
 
 @prod
 def const_opt(t):
@@ -1606,6 +1820,7 @@ def const_opt(t):
 @prod
 def const_opt_empty(t):
     'const_opt :'
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -1798,9 +2013,14 @@ def expression_ident(t):
 
 @prod_dml14
 def expression_ident(t):
-    '''expression : objident
+    '''expression : objident_base
                   | DEFAULT'''
     t[0] = ast.variable(site(t), t[1])
+
+@prod_dml14
+def expression_discardref(t):
+    '''expression : discard'''
+    t[0] = t[1]
 
 @prod_dml14
 def expression_this(t):
@@ -1809,8 +2029,8 @@ def expression_this(t):
 
 @prod
 def expression_member(t):
-    '''expression : expression PERIOD objident
-                  | expression ARROW objident'''
+    '''expression : expression PERIOD objident_base
+                  | expression ARROW objident_base'''
     t[0] = ast.member(site(t, 2), t[1], t[2], t[3])
 
 @prod
@@ -1876,6 +2096,7 @@ def endianflag(t):
 @prod
 def endianflag_none(t):
     'endianflag : '
+    fixup_emptyprod_lexpos(t)
     t[0] = None
 
 # expression-opt
@@ -1888,6 +2109,7 @@ def expression_opt_1(t):
 @prod
 def expression_opt_2(t):
     'expression_opt : '
+    fixup_emptyprod_lexpos(t)
     t[0] = None
 
 # A comma-separated expression list.  A trailing comma is allowed
@@ -1895,6 +2117,7 @@ def expression_opt_2(t):
 @prod
 def expression_list(t):
     'expression_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -1912,6 +2135,7 @@ def expression_list_many(t):
 @prod_dml12
 def expression_list_ntc_empty(t):
     'expression_list_ntc : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml12
@@ -2119,6 +2343,7 @@ def statement_for(t):
 @prod_dml14
 def for_post_empty(t):
     'for_post : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
@@ -2203,6 +2428,7 @@ def switch_hashifelse(t):
 @prod_dml14
 def stmt_or_case_list_empty(t):
     'stmt_or_case_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
@@ -2245,6 +2471,7 @@ def statement_delay(t):
 @prod
 def ident_list_empty(t):
     'ident_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -2263,15 +2490,42 @@ def ident_list_many(t):
     t[0] = t[1] + [(site(t, 3), t[3])]
 
 @prod_dml14
+def ident_or_discard_list_empty(t):
+    'ident_or_discard_list : '
+    fixup_emptyprod_lexpos(t)
+    t[0] = []
+
+@prod_dml14
+def ident_or_discard_list_nonempty(t):
+    'ident_or_discard_list : nonempty_ident_or_discard_list'
+    t[0] = t[1]
+
+@prod_dml14
+def ident_or_discard_list_one(t):
+    'nonempty_ident_or_discard_list : ident_or_discard'
+    t[0] = [t[1]]
+
+@prod_dml14
+def ident_or_discard_list_many(t):
+    'nonempty_ident_or_discard_list : nonempty_ident_or_discard_list COMMA ident_or_discard'
+    t[0] = t[1] + [t[3]]
+
+@prod_dml14
 def statement_delay_hook(t):
-    'statement_except_hashif : AFTER expression ARROW LPAREN ident_list RPAREN COLON expression SEMI'
+    'statement_except_hashif : AFTER expression ARROW LPAREN ident_or_discard_list RPAREN COLON expression SEMI'
     t[0] = ast.afteronhook(site(t), t[2], t[5], t[8])
 
+# Not using ident_or_discard in order to avoid reduce/reduce conflict
+# with expression_member
 @prod_dml14
 def statement_delay_hook_one_msg_param(t):
     'statement_except_hashif : AFTER expression ARROW ident COLON expression SEMI %prec bind'
-    t[0] = ast.afteronhook(site(t), t[2], [(site(t, 4), t[4])], t[6])
+    t[0] = ast.afteronhook(site(t), t[2], [ast.variable(site(t, 4), t[4])], t[6])
 
+@prod_dml14
+def statement_delay_hook_discarded_msg_param(t):
+    'statement_except_hashif : AFTER expression ARROW discard COLON expression SEMI %prec bind'
+    t[0] = ast.afteronhook(site(t), t[2], [t[4]], t[6])
 
 @prod_dml14
 def statement_delay_hook_no_msg_params(t):
@@ -2299,8 +2553,7 @@ def call(t):
             inargs.append(init_ast.args[0])
     else:
         if logging.show_porting:
-            i = min([3, 4], key=lambda i: t.lexpos(i))
-            report(PINPARAMLIST(site(t, i)))
+            report(PINPARAMLIST(site(t, 3)))
         method_ast = t[2]
         inargs = []
 
@@ -2394,7 +2647,7 @@ def hashselect(t):
 
 @prod
 def select(t):
-    'statement_except_hashif : hashselect ident IN LPAREN expression RPAREN WHERE LPAREN expression RPAREN statement hashelse statement'
+    'statement_except_hashif : hashselect ident_or_discard IN LPAREN expression RPAREN WHERE LPAREN expression RPAREN statement hashelse statement'
     t[0] = ast.select(site(t), t[2], t[5], t[9], t[11], t[13])
 
 @prod_dml12
@@ -2406,12 +2659,12 @@ def foreach(t):
 
 @prod_dml14
 def foreach(t):
-    'statement_except_hashif : FOREACH ident IN LPAREN expression RPAREN statement'
+    'statement_except_hashif : FOREACH ident_or_discard IN LPAREN expression RPAREN statement'
     t[0] = ast.foreach(site(t), t[2], t[5], t[7])
 
 @prod_dml14
 def hashforeach(t):
-    'statement_except_hashif : HASHFOREACH ident IN LPAREN expression RPAREN statement'
+    'statement_except_hashif : HASHFOREACH ident_or_discard IN LPAREN expression RPAREN statement'
     t[0] = ast.hashforeach(site(t), t[2], t[5], t[7])
 
 @prod_dml12
@@ -2498,7 +2751,7 @@ def warning_statement(t):
 @prod
 def warning_stmt(t):
     'warning_stmt : _WARNING bracketed_string_literal SEMI'
-    if compat.warning_statement not in dml.globals.enabled_compat:
+    if breaking_changes.forbid_warning_statement.enabled:
         raise ESYNTAX(site(t), '_warning', 'deprecated _warning statement')
     report(WEXPERIMENTAL(site(t), "_warning statement"))
     t[0] = ast.warning(site(t), t[2])
@@ -2507,6 +2760,7 @@ def warning_stmt(t):
 @prod
 def log_args_empty(t):
     'log_args : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -2526,6 +2780,7 @@ def compound_statement_2(t):
 @prod
 def statement_list_1(t):
     'statement_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod
@@ -2567,49 +2822,61 @@ def local_decl_kind(t):
 
 @prod
 def local_one(t):
-    '''local : local_decl_kind cdecl'''
-    (_, tsite, name, typ) = t[2]
+    '''local : local_decl_kind cdecl_maybe_discarded'''
+    (_, tsite, name, typ) = decl = t[2]
+
     assert typ
     if not name:
         raise ESYNTAX(tsite, ";", "variable name omitted")
-    t[0] = ast.get(t[1])(site(t), [t[2]], None)
+    if t[1] in {'session', 'saved'}:
+        decl = cdecl_enforce_not_discarded(decl)
+
+    t[0] = ast.get(t[1])(site(t), [decl], None)
 
 @prod_dml14
 def saved_local_one(t):
-    '''local : SAVED cdecl'''
+    '''local : SAVED cdecl_maybe_discarded'''
     local_one(t)
 
 @prod
 def local_one_init(t):
-    '''local : local_decl_kind cdecl EQUALS initializer'''
-    (name, typ) = t[2].args
+    '''local : local_decl_kind cdecl_maybe_discarded EQUALS initializer'''
+    (_, _, name, typ) = decl = t[2]
     assert typ
     if not name:
         raise ESYNTAX(site(t, 3), "=", "variable name omitted")
-    t[0] = ast.get(t[1])(site(t), [t[2]], t[4])
+    if t[1] in {'session', 'saved'}:
+        decl = cdecl_enforce_not_discarded(decl)
+
+    t[0] = ast.get(t[1])(site(t), [decl], t[4])
 
 @prod_dml14
 def saved_local_one_init(t):
-    '''local : SAVED cdecl EQUALS initializer'''
+    '''local : SAVED cdecl_maybe_discarded EQUALS initializer'''
     local_one_init(t)
 
 @prod_dml14
 def local_decl_multiple(t):
-    '''local : local_decl_kind LPAREN cdecl_list_nonempty RPAREN
-             | SAVED LPAREN cdecl_list_nonempty RPAREN'''
-    cdecl_list_enforce_named(t[3])
+    '''local : local_decl_kind LPAREN cdecl_maybe_discarded_list_nonempty RPAREN
+             | SAVED LPAREN cdecl_maybe_discarded_list_nonempty RPAREN'''
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    if t[1] in {'session', 'saved'}:
+        cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.get(t[1])(site(t), t[3], None)
 
 @prod_dml14
 def local_one_multiple_init(t):
-    '''local : local_decl_kind LPAREN cdecl_list_nonempty RPAREN EQUALS initializer
-             | SAVED LPAREN cdecl_list_nonempty RPAREN EQUALS initializer'''
-    cdecl_list_enforce_named(t[3])
+    '''local : local_decl_kind LPAREN cdecl_maybe_discarded_list_nonempty RPAREN EQUALS initializer
+             | SAVED LPAREN cdecl_maybe_discarded_list_nonempty RPAREN EQUALS initializer'''
+    cdecl_maybe_discarded_list_enforce_named(t[3])
+    if t[1] in {'session', 'saved'}:
+        cdecl_maybe_discarded_list_enforce_not_discarded(t[3])
     t[0] = ast.get(t[1])(site(t), t[3], t[6])
 
 @prod_dml14
 def simple_array_list_empty(t):
     'simple_array_list : '
+    fixup_emptyprod_lexpos(t)
     t[0] = []
 
 @prod_dml14
@@ -2619,8 +2886,8 @@ def simple_array_list(t):
 
 @prod_dml14
 def hook_decl(t):
-    '''hook_decl : HOOK LPAREN cdecl_list RPAREN ident simple_array_list SEMI'''
-    cdecl_list_enforce_unnamed(t[3])
+    '''hook_decl : HOOK LPAREN cdecl_maybe_discarded_list RPAREN ident simple_array_list SEMI'''
+    cdecl_maybe_discarded_list_enforce_unnamed(t[3])
     if t[6]:
         # Hook arrays are an internal feature, as their design depends on if we
         # are able to make hooks compound objects in the future
@@ -2649,33 +2916,71 @@ def objident_list(t):
 
 # Object/parameter names may use some additional keywords for now...
 @prod_dml12
-def objident(t):
-    '''objident : ident
-                | THIS
-                | REGISTER
-                | SIGNED
-                | UNSIGNED'''
+def objident_base(t):
+    '''objident_base : ident
+                     | THIS
+                     | REGISTER
+                     | SIGNED
+                     | UNSIGNED'''
     t[0] = t[1]
 
 @prod_dml14
-def objident(t):
-    '''objident : ident
-                | REGISTER'''
+def objident_base(t):
+    '''objident_base : ident
+                     | REGISTER'''
     t[0] = t[1]
 
+@prod
+def objident(t):
+    'objident : objident_base'
+    t[0] = t[1]
+
+@prod_dml14
+def objident_discard(t):
+    'objident : DISCARD'
+    discard_error(site(t))
+    t[0] = '__'
+
+def discard_error(site):
+    report(ESYNTAX(site,
+                   "_",
+                   "can't use the name '_' (the discard identifier) in this "
+                   + "context. See the description of 'Identifiers' within "
+                   + "the Lexical Structure section of the DML 1.4 Reference "
+                   + "Manual for an overview of when '_' may be used as a "
+                   + "name."))
+
+@prod
+def ident_or_discard_ident(t):
+    'ident_or_discard : ident'
+    t[0] = ast.variable(site(t, 1), t[1])
+
+@prod_dml14
+def ident_or_discard_discard(t):
+    '''ident_or_discard : discard'''
+    t[0] = t[1]
+
+@prod_dml14
+def discard(t):
+    'discard : DISCARD'
+    t[0] = ast.discard(site(t, 1))
+
 def ident_rule(idents):
-    return 'ident : ' +  "\n| ".join(idents)
+    def wrapper(rule):
+        rule.__doc__ = 'ident : ' +  "\n| ".join(idents)
+        return rule
+    return wrapper
 
 # Most DML top-level keywords are also allowed as identifiers.
 
 @prod_dml12
-@lex.TOKEN(ident_rule(dmllex12.reserved_idents + (
-    'ID', 'EACH', 'SESSION', 'SEQUENCE')))
+@ident_rule(dmllex12.reserved_idents + (
+    'ID', 'EACH', 'SESSION', 'SEQUENCE'))
 def ident(t):
     t[0] = t[1]
 
 @prod_dml14
-@lex.TOKEN(ident_rule(dmllex14.reserved_idents + ('ID',)))
+@ident_rule(dmllex14.reserved_idents + ('ID',))
 def ident(t):
     t[0] = t[1]
 
@@ -2688,12 +2993,12 @@ reserved_words_14 = reserved_words_12 + ['CALL', 'AUTO',
                                          'ASYNC', 'AWAIT', 'WITH']
 
 @prod_dml12
-@lex.TOKEN(ident_rule(reserved_words_12))
+@ident_rule(reserved_words_12)
 def reserved(t):
     raise ESYNTAX(site(t, 1), str(t[1]), "reserved word")
 
 @prod_dml14
-@lex.TOKEN(ident_rule(reserved_words_14))
+@ident_rule(reserved_words_14)
 def reserved(t):
     raise ESYNTAX(site(t, 1), str(t[1]), "reserved word")
 

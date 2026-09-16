@@ -56,6 +56,8 @@ extern const atom_t ATOM_LIST_END;
 
 extern char *_DML_describe_uint64_event(const char *base, uint64 data);
 
+extern attr_value_t VT_get_port_interfaces(conf_class_t *cls);
+
 extern typedef struct {
 } _callback_entry_t;
 
@@ -418,6 +420,43 @@ template post_init {
 }
 
 /**
+### objects_finalized
+
+Provides an abstract method `objects_finalized`, which is called once both the
+device and all other objects created at the same time as it have been
+successfully configured, such that they are ready to be communicated with.
+
+This template leverages the `objects_finalized` Simics mechanism (see
+`class_info_t` in the *Simics API Reference Manual*.)
+
+Note that, like [`init()`](#init) and [`post_init()`](#post_init),
+`objects_finalized()` will also be called as part of checkpoint restoration,
+which has implications for its use.
+For example, say you want to leverage `objects_finalized` to do some initial
+handshaking with other devices to set up a valid state before the simulation is
+run for the first time. If that state gets checkpointed, and may change over
+the course of the simulation, then you should place the handshaking you do
+within `objects_finalized` inside of an `if (!SIM_is_restoring_state(dev.obj))`
+block; otherwise, the handshake may overwrite the checkpointed state that gets
+restored.
+
+The method `objects_finalized` is automatically called on all objects that
+implement the `objects_finalized` template.
+
+*/
+template objects_finalized {
+    param _each_objects_finalized : sequence(objects_finalized);
+    shared method _rec_objects_finalized() {
+        foreach obj in (this._each_objects_finalized)
+            obj._rec_objects_finalized();
+        this.objects_finalized();
+    }
+    // Perform local post-configuration actions
+    shared method objects_finalized();
+    param _each_objects_finalized = each objects_finalized in (this);
+}
+
+/**
 ### destroy
 Provides an abstract method `destroy`, which is called when the
 device is being deleted. This provides a means to clean up resources associated
@@ -506,20 +545,34 @@ which cannot be overridden:
   single field inside a register array, the value is the empty list.
 
 * Each array has an *individual index parameter*, to make it possible
-  to refer to both inner and outer indexes when arrays are nested
+  to refer to both inner and outer indices when arrays are nested
   (cf. the `indices` parameter, above). The parameter name is
   specified in the array declaration; for instance, the declaration
   `register regs[i < 4][j < 11];` defines two index parameters, `i` and `j`.
   In this case, the `indices` parameter is `[i, j]`.
+
+  The discard identifier `_` is also allowed as the name of one or more index
+  parameters. If used, then it *won't* result in corresponding parameter
+  definitions for those indices; in other words, if an index variable is named
+  "`_`", then it can't be accessed by that name (however, the `indices`
+  parameter is unaffected and could be used instead.) It's also allowed to have
+  an object array specification name an index parameter "`_`" even if some
+  other object array specification uses a different name (which *will* be given
+  a corresponding parameter definition.) This is useful if a specific object
+  array specification doesn't need to make use of some particular indices; or
+  if the specification needs to support that the naming of the index variable
+  may vary depending on what other specifications of the same object array are
+  present in the device model.
 
 The `object` template provides the non-overridable method `cancel_after()`,
 which cancels all pending events posted using `after` which are associated with
 the object (any events associated with subobjects are unaffected).
 
 There are no other methods common for all objects, but the methods `init`,
-`post_init`, and `destroy` are automatically called on all objects that
-implement the [`init`](#init), [`post_init`](#post_init), and
-[`destroy`](#destroy) template, respectively.
+`post_init`, `objects_finalized` and `destroy` are automatically called on all
+objects that implement the [`init`](#init), [`post_init`](#post_init),
+[`objects_finalized`](#objects_finalized), and [`destroy`](#destroy) template,
+respectively.
 
 */
 template object is (name, _qname, desc, documentation, limitations) {
@@ -577,6 +630,10 @@ The `device` template contains the following methods:
 * `post_init()`: Called when the device object is loaded, *after* its
   configuration-object attributes have been initialized.
 
+* `objects_finalized()`: Called once both the device object, as well as all
+  other Simics configuration objects loaded in at the same time, have all
+  successfully been loaded.
+
 * `destroy()`: Called when the device object is being deleted.
 
 The `device` template contains the following parameters:
@@ -613,6 +670,9 @@ template device {
     // _init and _post_init are called automatically on object instantiation
     is init;
     is post_init;
+    // _objects_finalized is automatically called after object instantiation
+    // assuming sim configuration hasn't failed and been rolled back
+    is objects_finalized;
     // _destroy is called automatically on object deletion
     is destroy;
 
@@ -622,27 +682,64 @@ template device {
 
     param simics_api_version auto;
 
-    param _compat_broken_unused_types auto;
-    param _compat_broken_conditional_is auto;
-    param _compat_port_proxy_ifaces auto;
-    param _compat_port_proxy_attrs auto;
-    param _compat_function_in_extern_struct auto;
-    param _compat_optional_version_statement auto;
-    param _compat_port_obj_param auto;
-    param _compat_io_memory auto;
-    param _compat_shared_logs_on_device auto;
-    param _compat_suppress_WLOGMIXUP auto;
-    param _compat_legacy_attributes auto;
-    param _compat_lenient_typechecking auto;
-    param _compat_no_method_index_asserts auto;
-    param _compat_meaningless_log_levels auto;
-    param _compat_dml12_inline auto;
-    param _compat_dml12_not auto;
-    param _compat_dml12_goto auto;
-    param _compat_dml12_misc auto;
-    param _compat_dml12_int auto;
-    param _compat_experimental_vect auto;
-    param _compat_warning_statement auto;
+    // legacy aliases
+    param _compat_broken_unused_types
+        = !_breaking_change_forbid_broken_unused_types;
+    param _compat_broken_conditional_is
+        = !_breaking_change_forbid_broken_conditional_is;
+    param _compat_port_proxy_ifaces
+        = !_breaking_change_remove_port_proxy_ifaces;
+    param _compat_port_proxy_attrs
+        = !_breaking_change_remove_port_proxy_attrs;
+    param _compat_function_in_extern_struct
+        = !_breaking_change_forbid_function_in_extern_struct;
+    param _compat_optional_version_statement
+        = !_breaking_change_require_version_statement;
+    param _compat_io_memory = !_breaking_change_transaction_by_default;
+    param _compat_port_obj_param = !_breaking_change_port_obj_param;
+    param _compat_shared_logs_on_device
+        = !_breaking_change_shared_logs_locally;
+    param _compat_suppress_WLOGMIXUP = !_breaking_change_enable_WLOGMIXUP;
+    param _compat_legacy_attributes
+        = !_breaking_change_modern_attributes;
+    param _compat_lenient_typechecking
+        = !_breaking_change_strict_typechecking;
+    param _compat_no_method_index_asserts
+        = !_breaking_change_range_check_method_indices;
+    param _compat_meaningless_log_levels
+        = !_breaking_change_restrict_log_levels;
+    param _compat_dml12_inline
+        = !_breaking_change_dml12_disable_inline_constants;
+    param _compat_dml12_not = !_breaking_change_dml12_not_typecheck;
+    param _compat_dml12_misc = !_breaking_change_dml12_remove_misc_quirks;
+    param _compat_dml12_goto = !_breaking_change_dml12_remove_goto;
+    param _compat_dml12_int = !_breaking_change_dml12_modern_int;
+    param _compat_experimental_vect
+        = !_breaking_change_vect_needs_provisional;
+    param _compat_warning_statement
+        = !_breaking_change_forbid_warning_statement;
+
+    param _breaking_change_forbid_broken_unused_types auto;
+    param _breaking_change_forbid_broken_conditional_is auto;
+    param _breaking_change_remove_port_proxy_ifaces auto;
+    param _breaking_change_remove_port_proxy_attrs auto;
+    param _breaking_change_forbid_function_in_extern_struct auto;
+    param _breaking_change_require_version_statement auto;
+    param _breaking_change_transaction_by_default auto;
+    param _breaking_change_port_obj_param auto;
+    param _breaking_change_shared_logs_locally auto;
+    param _breaking_change_enable_WLOGMIXUP auto;
+    param _breaking_change_modern_attributes auto;
+    param _breaking_change_strict_typechecking auto;
+    param _breaking_change_range_check_method_indices auto;
+    param _breaking_change_restrict_log_levels auto;
+    param _breaking_change_dml12_disable_inline_constants auto;
+    param _breaking_change_dml12_not_typecheck auto;
+    param _breaking_change_dml12_remove_misc_quirks auto;
+    param _breaking_change_dml12_remove_goto auto;
+    param _breaking_change_dml12_modern_int auto;
+    param _breaking_change_vect_needs_provisional auto;
+    param _breaking_change_forbid_warning_statement auto;
 
     // automatic parameters
     param obj                       auto;
@@ -655,7 +752,7 @@ template device {
     param be_bitorder             default _be_bitorder;
     param log_group                 = undefined;
 
-    param use_io_memory             default _compat_io_memory;
+    param use_io_memory             default !_breaking_change_transaction_by_default;
     // this was available in DML 1.2; defensively reserved in 1.4
     param banks                     = undefined;
     // this carried semantics in DML 1.2; deprecated in 1.4
@@ -663,9 +760,11 @@ template device {
 
     method _init() { _rec_init(); }
     method _post_init() { _rec_post_init(); }
+    method _objects_finalized() { _rec_objects_finalized(); }
     method _destroy() { _rec_destroy(); }
     method init() default {}
     method post_init() default {}
+    method objects_finalized() default {}
     method destroy() default {}
 }
 
@@ -1373,6 +1472,17 @@ template connect is _conf_attribute {
 
     param _interfaces_doc auto;
 
+    shared method _has_port_object(conf_object_t *obj, const char *ns,
+                                   const char *portname) -> (bool) {
+        local conf_object_t *ns_obj = SIM_object_descendant(obj, ns);
+        if (ns_obj) {
+            if (SIM_object_descendant(ns_obj, portname) != NULL) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     shared method set_attribute(attr_value_t value) -> (set_error_t) {
         local conf_object_t *obj = NULL;
         local const char *port = NULL;
@@ -1393,21 +1503,41 @@ template connect is _conf_attribute {
 
         // Check if the new setting is valid
         if (obj) {
+            if (port != NULL) {
+                local attr_value_t ports = VT_get_port_interfaces(
+                    SIM_object_class(obj));
+                local uint32 num_ports = SIM_attr_list_size(ports);
+                SIM_attr_free(&ports);
+                if (num_ports == 0) {
+                    #select ns in (["bank", "port"]) where (
+                        _has_port_object(obj, ns, port)) {
+                        // friendly hint for common error when migrating
+                        // to --breaking-change=remove-port-proxy-ifaces
+                        SIM_c_attribute_error(
+                            "The object '%s' does not have a legacy"
+                            + " interface port '%s'. Did you mean %s.%s.%s?",
+                            SIM_object_name(obj), port,
+                            SIM_object_name(obj), ns, port);
+                        return Sim_Set_Interface_Not_Found;
+                    } #else {}
+                }
+            }
             local bool valid = true;
             foreach iface in (this._each_interface) {
                 if (iface._required) {
                     if (SIM_c_get_port_interface(obj, iface.name, port)
                         == NULL) {
-                        if (port)
+                        if (port) {
                             SIM_c_attribute_error(
                                 "Interface '%s' not found for port '%s' in"
                                 + " object '%s'",
                                 iface.name, port, SIM_object_name(obj));
-                        else
+                        } else {
                             SIM_c_attribute_error(
                                 "The %s object does not implement the"
                                 + " required %s interface",
                                 SIM_object_name(obj), iface.name);
+                        }
                         valid = false;
                     }
                 }
@@ -1546,7 +1676,8 @@ template port is object {
     param _is_simics_object = true;
     // limitations for ports are not recognized
     param limitations = undefined;
-    param obj = dev._compat_port_obj_param #? dev.obj #: _port_obj();
+    param obj = dev._breaking_change_port_obj_param
+        #? _port_obj() #: dev.obj;
 
     #if (parent.objtype == "group"
          #? parent._simics_namespace_clash #: false) {
@@ -1790,11 +1921,49 @@ of `unmapped_read` if the access is not fully
 mapped.
 </dd><dt>
 
-<small>unmapped\_read(uint64 offset, uint64 bits, void \*aux) throws</small>
+<small>unmapped\_read(uint64 offset, uint64 bits, void \*aux) -> (uint64) throws</small>
 </dt><dd>
 
-Like `unmapped_write` but for reads. The default
-      implementation unconditionally throws an exception.
+Like `unmapped_write` but for reads. The default implementation unconditionally
+throws an exception, which causes the read access to be rejected. However, the
+method may be overridden to instead return a value specifying the read bits
+corresponding to the unmapped bytes, which will then be composed together with
+the values read from the accessed registers.
+</dd><dt>
+
+<small>set(uint64 offset, uint64 size, uint64 value)</small>
+</dt><dd>
+A simpler variant of `write()` used exclusively for inquiry write accesses to
+the bank. Unlike `write()`, `set()` unconditionally operates over an entire
+range of bytes (hence `size` rather than `enabled_bytes`), does not have an
+`aux` parameter, and cannot throw. Any invocation of `write` is considered
+valid, even if some part of the access is not covered by mapped registers (in
+which case no action should be taken for those bytes.)
+
+The default implementation invokes `set()` of the accessed registers rather
+than `write_register()`, and instead of calling to something similar to
+`unmapped_write()`, the default implementation simply logs a low-level `info`
+message about unmapped accesses.
+</dd><dt>
+
+<small>get(uint64 offset, uint64 size) -> (uint64) throws</small>
+</dt><dd>
+A simpler variant of `read()` used exclusively for inquiry read accesses to
+the bank. Unlike `read`, `get()` unconditionally operates over an entire
+range of bytes (hence `size` rather than `enabled_bytes`) and does not have an
+`aux` parameter. Unlike `set()`, invocations to `get()` may throw, in
+particular when some part of the access is not covered by mapped registers.
+
+The default implementation invokes `get()` of the accessed registers rather
+than `read_register()`, and calls to `unmapped_get()` upon unmapped accesses
+rather than `unmapped_read()`.
+</dd></dt>
+
+<small>unmapped\_get(uint64 offset, uint64 bits) -> (uint64) throws</small>
+</dt><dd>
+
+Like `unmapped_read` but for inquiry reads. The default implementation
+unconditionally throws an exception.
 </dd></dl>
 
 The `bank` template contains the following parameters:
@@ -1895,7 +2064,8 @@ template bank is (object, shown_desc) {
     // compatibility: referencing 'obj' in a bank method must evaluate to
     // dev.obj in code that can compile on both 5 and 6
     // TODO: we should probably make obj an immutable session variable
-    param obj = dev._compat_port_obj_param #? dev.obj #: _bank_obj();
+    param obj = dev._breaking_change_port_obj_param
+        #? _bank_obj() #: dev.obj;
     param partial : bool;
     param overlapping : bool;
     param _le_byte_order : bool;
@@ -2048,6 +2218,7 @@ template bank is (object, shown_desc) {
     shared method _dispatch(uint64 offset, uint64 size, register *hits, bool inquiry)
         -> (int, uint64) /* nhits, unmapped_bytes */ {
         local (const register *regs, int num_mapped_regs) = _sorted_regs();
+        assert size > 0 && size <= 8;
         local uint64 unmapped_bytes = cast(-1, uint64)[size * 8 - 1 : 0];
         if (num_mapped_regs == 0) {
             return (0, unmapped_bytes);
@@ -2178,6 +2349,12 @@ template bank is (object, shown_desc) {
     }
 
     shared method get(uint64 offset, uint64 size) -> (uint64) throws default {
+        if (size == 0 || size > 8) {
+            log error: "%s.get() call at 0x%llx with invalid size %d",
+                this._qname(), offset, size;
+            throw;
+        }
+
         local register hits[8];
         local int num_hits;
         local uint64 unmapped_bytes;
@@ -2264,6 +2441,12 @@ template bank is (object, shown_desc) {
     }
 
     shared method set(uint64 offset, uint64 size, uint64 value) default {
+        if (size == 0 || size > 8) {
+            log error: "%s.set() call at 0x%llx with invalid size %d",
+                this._qname(), offset, size;
+            return;
+        }
+
         local register hits[8];
         local int num_hits;
         local uint64 unmapped_bytes;
@@ -3563,9 +3746,16 @@ order for a method override to have effect.
 in most cases, it is easier to express read operations using the
 `read` template.
 
-Note that instantiating `read_field` on a register means that
-register reads behave as if the register consists of one single field; a
-read access will ignore any actual field subobjects in the register.
+Note that instantiating `read_field` on a register incurs a `read_register`
+implementation such that reads behave as if the register consists of one single
+field; a read access will ignore any actual field subobjects in the register.
+
+This `read_register` implementation is provided by the automatically
+instantiated `read_register_from_read_field` template, which you may need
+to reference in order to override the implementation &mdash; for example in
+order to resolve implementation conflicts (through the use of
+[Template-Qualified Method Implementation
+Calls](language.html#template-qualified-method-implementation-calls).
 */
 template read_field {
     shared method read_field(uint64 enabled_bits, void *aux) -> (uint64);
@@ -3588,36 +3778,46 @@ override to have effect.  `write_field` is the interface used for
 access by registers; in most cases, it is easier to express write
 operations using the `write` template.
 
-Note that instantiating `write_field` on a register means that
-register writes behave as if the register consists of one single
-field; a write access will ignore any actual field subobjects in the
-register.  This is often useful in read-only registers, as it allows
-reads to propagate to fields, while a violating write can be handled
-centrally for the whole register.
+Note that instantiating `write_field` on a register incurs a `write_register`
+implementation such that register writes behave as if the register consists
+of one single field; a write access will ignore any actual field subobjects in
+the register. This is often useful in read-only registers, as it allows reads
+to propagate to fields, while a violating write can be handled centrally for
+the whole register.
+
+This `write_register` implementation is provided through the automatically
+instantiated `write_register_from_write_field` template, which you may
+need to reference in order to override the implementation &mdash; for example
+in order to resolve implementation conflicts (through the use of
+[Template-Qualified Method Implementation
+Calls](language.html#template-qualified-method-implementation-calls).
 */
 template write_field {
     shared method write_field(uint64 val, uint64 enabled_bits, void *aux);
 }
 
-template _reg_read_as_field is (register, read_register, read_field) {
+
+template read_register_from_read_field is (register, read_field) {
     shared method read_register(uint64 enabled_bytes, void *aux)
-        -> (uint64) {
+        -> (uint64) default {
         return enabled_bytes == 0 ? 0
             : this.read_field(enabled_bytes, aux) & enabled_bytes;
     }
 }
 
-in each (read_field, register) { is _reg_read_as_field; }
+in each (read_field, register) { is read_register_from_read_field; }
 
-template _reg_write_as_field is (register, write_register, write_field) {
-    shared method write_register(uint64 val, uint64 enabled_bytes, void *aux) {
+template write_register_from_write_field is (register, write_field) {
+    shared method write_register(uint64 val, uint64 enabled_bytes, void *aux)
+        default {
         if (enabled_bytes != 0) {
             this.write_field(val & enabled_bytes, enabled_bytes, aux);
         }
     }
 }
 
-in each (write_field, register) { is _reg_write_as_field; }
+in each (write_field, register) { is write_register_from_write_field; }
+
 
 template _bitsize {
     // Must be a multiple of 8 for registers, but not for fields.
@@ -3640,12 +3840,14 @@ The `read` template is *not* implemented by fields or registers by
 default, and must be explicitly instantiated in order for a method
 override to have effect.
 
-Note that instantiating `read` on a register means that register reads
-behave as if the register consists of one single field; a read access
-will ignore any actual field subobjects in the register.
+Note that instantiating `read` on a register incurs a `read_register`
+implementation such that register reads behave as if the register consists of
+one single field; a read access will ignore any actual field subobjects in the
+register. For more information, see [`read_field`](#read_field).
 */
 template read is (read_field, _get) {
-    shared method read_field(uint64 enabled_bits, void *aux) -> (uint64) {
+    shared method read_field(uint64 enabled_bits, void *aux) -> (uint64)
+        default {
         return enabled_bits == 0 ? 0 : this.read() & enabled_bits;
     }
     // convenience method for simple whole-field access
@@ -3671,12 +3873,14 @@ The `write` template is *not* implemented by fields or registers by
 default, and must be explicitly instantiated in order for a method
 override to have effect.
 
-Note that instantiating `write` on a register means that register
-writes behave as if the register consists of one single field; a write
-access will ignore any actual field subobjects in the register.
+Note that instantiating `write` on a register incurs a `write_register`
+implementation such that register writes behave as if the register consists of
+one single field; a write access will ignore any actual field subobjects in
+the register. For more information, see [`write_field`](#write_field).
 */
 template write is (write_field, _get, _set) {
-    shared method write_field(uint64 val, uint64 enabled_bits, void *aux) {
+    shared method write_field(uint64 val, uint64 enabled_bits, void *aux)
+        default {
         if (enabled_bits != 0) {
             local uint64 patched = this.get() & ~enabled_bits;
             this.write(patched | (val & enabled_bits));
@@ -3859,7 +4063,13 @@ Non-overrideable method. Posts the event on the associated queue of the
 device. The time argument is specified in cycles or seconds, depending on which
 template was instantiated. The event will be triggered after the specified
 amount of time has elapsed. The data parameter in a `uint64` or
-`custom` event will be passed on to the event() method.
+`custom` event will be passed on to the `event()` method.
+
+It is allowed to call the `post()` method of an event object again before the
+event callback from the previous call has been invoked; in this case, the
+event callback will be invoked twice. In the `uint64_*_event` and
+`custom_*_event` cases, the event data may or may not be identical between the
+two calls.
 </dd></dl>
 
 The following methods are specific to the `simple_time_event`,
@@ -3873,6 +4083,17 @@ The following methods are specific to the `simple_time_event`,
 
 Removes all events of this type with matching data from
 the queue.
+
+> [!NOTE]
+>
+> If multiple outstanding events are needed from the same event object, and
+> these need to be selectively canceled, then this can only be achieved if the
+> event is based on `uint64_*_event`. If more complex event data is required,
+> then this can be achieved by assigning a unique integer ID with each
+> outstanding event, store the event data of all outstanding events together
+> with their IDs in an attribute, and only send the IDs as event data, thus
+> allowing `remove` to uniquely identify each posted event.
+
 </dd><dt>
 
 <small>posted() -&gt; (bool), posted(uint64 value) -&gt; (bool)</small>

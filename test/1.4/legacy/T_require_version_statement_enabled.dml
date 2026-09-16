@@ -1,0 +1,8 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+/// DMLC-FLAG --breaking-change=require-version-statement
+/// ERROR ESYNTAX T_require_version_statement_enabled.dml
+
+device test;

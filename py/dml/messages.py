@@ -53,9 +53,9 @@ class EAFTER(DMLError):
             self.method.site,
             "method declaration"
             + ''.join(
-                f"\nmethod parameter '{pname}' is of unserializable type: "
-                + f"{ptype}"
-                for (pname, ptype) in self.unserializable or []))
+                f"\nmethod parameter {p.logref} is of unserializable type: "
+                + f"{p.typ}"
+                for p in self.unserializable or []))
 
 class EAFTERSENDNOW(DMLError):
     """
@@ -74,7 +74,7 @@ class EAFTERSENDNOW(DMLError):
         clarification = ("not provided through a message component parameter "
                          "of the 'after' " * (target_hook is not None))
         unserializable_msg = (''.join(
-                f"\nmessage component {idx} is of unserializable type: "
+                f"\nmessage component {idx + 1} is of unserializable type: "
                 + f"{ptype}"
                 for (idx, ptype) in unserializable))
 
@@ -139,9 +139,13 @@ class ECYCLICTEMPLATE(DMLError):
             self.print_site_message(site, "via here")
 
 class EAMBINH(DMLError):
-    """If a method or parameter has multiple definitions, then there must
+    """<a id="EAMBINH"/>
+    If a method or parameter has multiple definitions, then there must
     be a unique definition that overrides all other definitions.
+    See [Resolution of overrides](language.html#resolution-of-overrides).
     """
+    # 'Resolution of overrides' does not exist in the 1.2 reference manual
+    version = "1.4"
     fmt = "conflicting definitions of %s when instantiating %s and %s"
     def __init__(self, site, other_site, method, rank_desc1, rank_desc2,
                  overridable=True):
@@ -198,9 +202,9 @@ class EAMBDEFAULT(DMLError):
 
 class EAMETH(DMLError):
     """
-    An abstract method cannot override another method.
+    A shared abstract method cannot override another method.
     """
-    fmt = "abstract method %s overrides existing method"
+    fmt = "shared abstract method %s overrides existing method"
 
     def __init__(self, site, prev_site, name):
         DMLError.__init__(self, site, name)
@@ -246,6 +250,13 @@ class EABSTEMPLATE(DMLError):
         DMLError.log(self)
         self.print_site_message(
             self.decl_site, "abstract declaration")
+
+class EABSMETH(DMLError):
+    """
+    An (abstractly) declared method never has any definition made for it.
+    """
+    version = "1.4"
+    fmt = "declared method %s is never implemented"
 
 class EIMPORT(DMLError):
     """
@@ -803,27 +814,21 @@ class EUNINITIALIZED(DMLError):
     """
     fmt = "value of parameter %s is not yet initialized"
 
-class ECONDP(DMLError):
+class EBADCONDSTMT(DMLError):
     """
-    It is not permitted to declare a parameter directly inside an
-    `if` conditional.
-    """
-    fmt = "conditional parameters are not allowed"
+    `#if` statements in object scope are only allowed to contain
+    certain kinds of declarations: objects, `method`, `session`,
+    `saved`, `#if`, `in each`, `hook`, or `error`. This means in particular
+    that `param` and `is` statements are not permitted inside an `#if` block.
 
-class ECONDT(DMLError):
-    """
-    It is not permitted to use a template directly inside an
-    `if` conditional.
-    """
-    fmt = "conditional templates are not allowed"
+    This restriction does *not* apply recursively: object or `in each` blocks
+    inside an `#if` are allowed to contain `param` and `is` statements.
 
-class ECONDINEACH(DMLError):
+    Another special exception is that a `#if` on top scope may contain any
+    kind of statement as long as the `#if` condition doesn't reference
+    any identifiers other than `dml_1_2`, `true`, and `false`.
     """
-    It is not permitted to have an `in each` statement directly
-    inside an `if` conditional.
-    """
-    version = "1.4"
-    fmt = "conditional 'in each' is not allowed"
+    fmt = "'%s' declaration not allowed immediately inside `#if`"
 
 # TODO: Consider re-wording the semantics of this error, allocate_type is only
 # relevant in 1.4 when imported from 1.2, and as per SIMICS-9393 this
@@ -935,8 +940,7 @@ class EAUNKDIMSIZE(DMLError):
     The size of an array dimension of an object array must be defined at least
     once across all declarations of that object array.
     """
-    fmt = ("the size of dimension %d (with index variable '%s') is never "
-           + "defined")
+    fmt = ("the size of dimension %d%s is never defined")
 
 class ENCONST(DMLError):
     """
@@ -1013,11 +1017,11 @@ class EARGT(DMLError):
     The data type of the argument value given for the mentioned method
     parameter differs from the method definition.
     """
-    fmt = ("wrong type in %s parameter '%s' when %s '%s'\n"
+    fmt = ("wrong type in %s parameter %s when %s '%s'\n"
            "got:      '%s'\n"
            "expected: '%s'")
     def __init__(self, site, invocation_type, method_name,
-                 got_type, pname, ptype, direction):
+                 got_type, pref, ptype, direction):
         if invocation_type == 'call':
             invok = "calling"
         elif invocation_type == 'inline':
@@ -1025,7 +1029,7 @@ class EARGT(DMLError):
         elif invocation_type == 'implement':
             invok = "implementing"
         DMLError.__init__(self, site,
-                          direction, pname, invok, method_name,
+                          direction, pref, invok, method_name,
                           got_type, ptype)
 
 class ENARGT(DMLError):
@@ -1033,9 +1037,9 @@ class ENARGT(DMLError):
     Methods that are called must have data type declarations for all
     their parameters. (Methods that are only inlined do not need this.)
     """
-    fmt = "no type for %s parameter '%s'"
-    def __init__(self, site, pname, direction, callsite = None):
-        DMLError.__init__(self, site, direction, pname)
+    fmt = "no type for %s parameter %s"
+    def __init__(self, site, pref, direction, callsite = None):
+        DMLError.__init__(self, site, direction, pref)
         self.callsite = callsite
     def log(self):
         DMLError.log(self)
@@ -1050,8 +1054,8 @@ class EPTYPE(DMLError):
     fmt = ("wrong type for parameter %s in %s call\n"
            "got:      %s\n"
            "expected: %s")
-    def __init__(self, site, arg, ptype, argname, kind):
-        DMLError.__init__(self, site, argname, kind, arg.ctype(), ptype)
+    def __init__(self, site, arg, ptype, pref, kind):
+        DMLError.__init__(self, site, pref, kind, arg.ctype(), ptype)
 
 class ENAMECOLL(DMLError):
     """
@@ -1134,13 +1138,14 @@ class EAUTOPARAM(DMLError):
     library, and they may not be overridden."""
     fmt = "bad declaration of automatic parameter '%s'"
 
-class ENOVERRIDE(DMLError):
+class ENOVERRIDEPARAM(DMLError):
     """When the `explict_param_decls` provisional feature is enabled, parameter
     definitions written using `=` and `default` are only accepted if the
     parameter has already been declared.
     To declare and define a new parameter not already declared, use the `:=` or
     `:default` syntax.
     """
+    version = "1.4"
     fmt = ("parameter '%s' not declared previously."
            " To declare and define a new parameter, use the ':%s' syntax.")
 
@@ -1154,13 +1159,14 @@ class ENOVERRIDE(DMLError):
             "enabled by the explicit_param_decls provisional feature")
 
 
-class EOVERRIDE(DMLError):
+class EOVERRIDEPARAM(DMLError):
     """When the `explict_param_decls` provisional feature is enabled,
     any parameter declared via `:=` or `:default` may not already
     have been declared. This means `:=` or `:default` syntax can't be used
     to override existing parameter declarations (not even those lacking a
     definition of the parameter.)
     """
+    version = "1.4"
     fmt = ("the parameter '%s' has already been declared "
            + "(':%s' syntax may not be used for parameter overrides)")
     def __init__(self, site, other_site, name, token):
@@ -1169,6 +1175,45 @@ class EOVERRIDE(DMLError):
     def log(self):
         DMLError.log(self)
         self.print_site_message(self.other_site, "existing declaration")
+
+
+class EEXTENSION(DMLError):
+    """When the [`explicit_object_extensions` provisional
+    feature](provisional-auto.html#explicit_object_extensions) is enabled,
+    any object definition made via `in` syntax is considered an extension such
+    that there must be some other non-extension declaration of the object, or
+    DMLC will reject the extension.
+    To declare and define a new object not already declared, omit the `in`
+    syntax.
+    """
+    version = "1.4"
+    fmt = ("object '%s' not declared elsewhere."
+           " To declare and define a new object, omit 'in'.")
+
+class EMULTIOBJDECL(DMLError):
+    """When the [`explicit_object_extensions` provisional
+    feature](provisional-auto.html#explicit_object_extensions) is enabled,
+    any object declaration not made using `in` syntax is considered a
+    declaration of a novel object &mdash; because of that, DMLC will reject
+    it if there already is another non-`in` declaration across files enabling
+    `explicit_object_extensions`.
+    """
+    version = "1.4"
+    fmt = ("object '%s' already declared."
+           " To extend upon the definition of an object, use 'in %s'")
+    def __init__(self, site, other_site, objtype, name):
+        super().__init__(site, name, f'{objtype} {name} ...')
+        self.other_site = other_site
+
+    def log(self):
+        from . import provisional
+        DMLError.log(self)
+        self.print_site_message(self.other_site, "existing declaration")
+        prov_site = self.site.provisional_enabled(
+            provisional.explicit_object_extensions)
+        self.print_site_message(
+            prov_site,
+            "enabled by the explicit_object_extensions provisional feature")
 
 class EVARPARAM(DMLError):
     """
@@ -1270,6 +1315,44 @@ class EMETH(DMLError):
         DMLError.log(self)
         if self.othersite:
             self.print_site_message(self.othersite, "conflicting definition")
+
+class ENOVERRIDEMETH(DMLError):
+    """When the `explict_method_decls` provisional feature is enabled, method
+    definitions written using `{ ... }` and `default { ... }` are only accepted
+    if the method has already been declared.
+
+    To declare and define a new method not already declared, use the `:{ ... }`
+    or `:default { ... }` syntax.
+    """
+    version = "1.4"
+    fmt = ("method '%s' not declared previously."
+           " To declare and define a new method, use the ':%s{...}' syntax.")
+
+    def log(self):
+        from . import provisional
+        DMLError.log(self)
+        prov_site = self.site.provisional_enabled(
+            provisional.explicit_method_decls)
+        self.print_site_message(
+            prov_site,
+            "enabled by the explicit_method_decls provisional feature")
+
+class EOVERRIDEMETH(DMLError):
+    """When the `explict_method_decls` provisional feature is enabled,
+    any method declared via `:{ ... }` or `:default { ... }` may not already
+    have been declared. This means `:{ ... }` or `:default { ... }` syntax
+    can't be used to override existing parameter declarations (not even those
+    lacking a definition of the parameter.)
+    """
+    version = "1.4"
+    fmt = ("the method '%s' has already been declared "
+           + "(':%s{ ... }' syntax may not be used for method overrides)")
+    def __init__(self, site, other_site, name, token):
+        super().__init__(site, name, token)
+        self.other_site = other_site
+    def log(self):
+        DMLError.log(self)
+        self.print_site_message(self.other_site, "existing declaration")
 
 class EIMPLMEMBER(DMLError):
     """
@@ -1898,6 +1981,16 @@ class EOLDVECT(DMLError):
     feature](provisional-auto.html#simics_util_vect) is enabled."""
     fmt = "declaration of vect type without simics_util_vect provisional"
 
+class EDISCARDREF(DMLError):
+    """
+    The expression `_` resolves to the [discard
+    reference](language.html#discard-reference), and can only be used as an
+    assignment target, in order to e.g. throw away return values of a function.
+    """
+    version = "1.4"
+    fmt = ("'_' can only be used as an assignment target "
+           + "(to discard some value)")
+
 #
 # WARNINGS (keep these as few as possible)
 #
@@ -2064,10 +2157,6 @@ class WWRNSTMT(DMLWarning):
     """
     fmt = "%s"
 
-class WSYSTEMC(DMLWarning):
-    """ SystemC specific warnings """
-    fmt = "%s"
-
     # This message should be removed, SIMICS-9886
 class WREF(DMLWarning):
     """An unused parameter refers to an object that has not been declared.
@@ -2187,7 +2276,8 @@ class WPCAST(DMLWarning):
         DMLWarning.__init__(self, site, old, new, suggestion)
 
 class WLOGMIXUP(DMLWarning):
-    """
+    """<a id="WLOGMIXUP"/>
+
     A specified log level of a `log` looks as though you meant to specify the
     log groups instead, and/or vice versa. For example:
     ```
@@ -2212,7 +2302,7 @@ class WLOGMIXUP(DMLWarning):
     ```
 
     This warning is only enabled by default with Simics API version 7 or above
-    (due to the compatibility feature `suppress_WLOGMIXUP`.)
+    (due to the breaking change `enable_WLOGMIXUP`.)
     """
     fmt = ("log statement with likely misspecified log level(s) and log "
            + "groups: %s")
@@ -2296,6 +2386,36 @@ class WHOOKSEND(DMLWarning):
            + "Declarations section in the DML 1.4 reference manual for "
            + "information about the differences between 'send' and 'send_now'")
 
+
+class WSTRAYIS(DMLWarning):
+    """
+    A standalone `is` statement was found that looks like it was instead
+    intended to affect a preceding object declaration rather than the enclosing
+    object/template in which the `is` statement and (sub)object declaration are
+    made.
+
+    This typically happens due to a stray semicolon before the `is`, e.g.:
+    ```
+    field f @ [31:0]; is read_only;
+    ```
+    or
+    ```
+    field f @ [31:0];
+        is read_only;
+    ```
+
+    If done unintentionally, address this warning by making the `is` part of
+    the declared object. If there is indeed a stray semicolon this can
+    typically be accomplished simply by removing it.
+
+    If the standalone `is` statement is intentional, silence this warning
+    by making sure the `is` statement is on a new line separate from the object
+    declaration, and is not indented any deeper than the object declaration is.
+    """
+    fmt = ("suspect standalone 'is': formatting suggests it was meant to "
+           + "affect the %s declared just before it rather than the "
+           + "enclosing object/template. "
+           + "Perhaps you have a stray ';' before the 'is'?")
 
 class PSHA1(PortingMessage):
     """The `port-dml` script requires that the DML file has not been

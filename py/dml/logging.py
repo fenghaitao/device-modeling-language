@@ -21,7 +21,9 @@ __all__ = (
     'Site',
     'SimpleSite',
     'DumpableSite',
+    'ExpandedSite',
     'TemplateSite',
+    'InEachSite',
 
     'dbg',
     )
@@ -161,7 +163,7 @@ class LogMessage(object):
         '''Call before log when reporting. Return True to actually log
         or False to abort'''
         return True
-    
+
     # This method can be overridden
     def log(self):
         global last_used_error_context
@@ -173,18 +175,15 @@ class LogMessage(object):
             last_used_error_context = self.ctx
             ctx = self.ctx
 
-        tpl_site = ctx.node.site if ctx else self.site
-        # The chain of is statements leading to this message. Pairs
-        # (site, name) where name is the template instantiated by the
-        # is statement on site. Innermost site first.
-        if tpl_site:
-            ises = []
-            while tpl_site.is_site:
-                ises.append((tpl_site.is_site, tpl_site.tpl_name))
-                tpl_site = tpl_site.is_site
-            for (site, name) in reversed(ises):
-                self.print_site_message(site,
-                                        "In template %s" % (name,))
+        expanded_site = ctx.node.site if ctx else self.site
+        # The chain of expansions (is statements or in-each:s) leading to this
+        # message.
+        expansions = []
+        while isinstance(expanded_site, ExpandedSite):
+            expansions.append(expanded_site)
+            expanded_site = expanded_site.cause_site
+        for site in reversed(expansions):
+            self.print_site_message(site.cause_site, f"In {site.describe()}")
 
         if ctx:
             self.print_site_message(ctx.site,
@@ -275,13 +274,14 @@ class Site(metaclass=abc.ABCMeta):
     def filename(self): pass
     @abc.abstractproperty
     def lineno(self): pass
+    @abc.abstractproperty
+    def colno(self): pass
     @abc.abstractmethod
     def dml_version(self): pass
     @abc.abstractmethod
     def provisional_enabled(self, feature): pass
     @abc.abstractmethod
     def bitorder(self): pass
-    is_site = None
 
 class SimpleSite(Site):
     '''A variant of Site without line information. Useful for code
@@ -303,6 +303,7 @@ class SimpleSite(Site):
     def provisional_enabled(self, feature):
         return False
     lineno = 1
+    colno = 1
 
 def accumulate(iterable):
     '''Like itertools.accumulate from Python 3.2'''
@@ -316,7 +317,7 @@ class FileInfo(object):
     with a unique FileInfo instance, which is accessible via all sites
     of the AST.'''
     __slots__ = ('name', 'version', 'bitorder', '_line_offsets',
-                 'utf8_columns', 'provisional')
+                 'provisional')
     def __init__(self, name, version, bitorder='le', content_lines=None,
                  provisional=None):
         name = str(name)
@@ -332,11 +333,6 @@ class FileInfo(object):
             content_lines = list(content_lines)
             self._line_offsets = [0] + list(
                 accumulate(len(line) for line in content_lines))
-            # Temporary py2 hack for expressing utf-8 based column numbers
-            # if line N contains unicode characters, then utf8_column[N][c]
-            # is the character index of the c:th byte
-            utf8_columns = {}
-            self.utf8_columns = utf8_columns
         self.set_name(name)
         self.provisional = provisional or {}
 
@@ -358,20 +354,17 @@ class FileInfo(object):
 
     def __getstate__(self):
         return (self.name, self.version, self.bitorder, self._line_offsets,
-                self.utf8_columns, {p.tag(): site
-                                    for (p, site) in self.provisional.items()})
+                {p.tag(): site for (p, site) in self.provisional.items()})
     def __setstate__(self, data):
         from . import provisional
         (self.name, self.version, self.bitorder, self._line_offsets,
-         self.utf8_columns, provisionals) = data
+         provisionals) = data
         self.provisional = {provisional.features[tag]: site
                             for (tag, site) in provisionals.items()}
     def loc_from_offset(self, offset):
         '''Calculate a file location as a (line, col) pair'''
         line = bisect.bisect_right(self._line_offsets, offset) - 1
         col = offset - self._line_offsets[line]
-        if line in self.utf8_columns:
-            col = self.utf8_columns[line].get(col, col)
         return (line + 1, col + 1)
     def size(self):
         return self._line_offsets[-1]
@@ -390,6 +383,10 @@ class DumpableSite(Site):
     def lineno(self):
         (line, col) = self.file_info.loc_from_offset(self._offs)
         return line
+    @property
+    def colno(self):
+        (line, col) = self.file_info.loc_from_offset(self._offs)
+        return col
     def loc(self):
         (line, col) = self.file_info.loc_from_offset(self._offs)
         return "%s:%d:%d" % (self.filename(), line, col)
@@ -408,25 +405,61 @@ class DumpableSite(Site):
     def provisional_enabled(self, feature):
         return self.file_info.provisional.get(feature, False)
 
-class TemplateSite(Site):
-    '''A source code location after template expansion'''
-    __slots__ = ('site', 'is_site', 'tpl_name')
-    def __init__(self, site, is_site, tpl_name):
-        self.site = site
-        # site of the is statement that yielded this site
-        self.is_site = is_site
-        # name of the template this statement was expanded from
-        self.tpl_name = tpl_name
+class ExpandedSite(Site):
+    '''A source code location within a reusable chunk of object code after
+    having been expanded into an object.
+
+    site:       The site for the source location that ExpandedSite wraps.
+    cause_site: The site for the statement which caused the expansion.
+                For templates, this would be an `is` statement.
+    '''
+    __slots__ = ('site', 'cause_site')
+
+    @abc.abstractmethod
+    def describe(self) -> str:
+        '''A description of the construct for the reusable chunk of code'''
+        pass
+
     def __repr__(self):
-        return '<site %s via %s>' % (repr(self.site), repr(self.is_site))
+        return '<site %s via %s>' % (repr(self.site), repr(self.cause_site))
     def dml_version(self): return self.site.dml_version()
     def loc(self): return self.site.loc()
     def filename(self): return self.site.filename()
     def bitorder(self): return self.site.bitorder()
     @property
     def lineno(self): return self.site.lineno
+    @property
+    def colno(self): return self.site.colno
     def provisional_enabled(self, feature):
         return self.site.provisional_enabled(feature)
+
+
+class TemplateSite(ExpandedSite):
+    '''A source code location after template expansion'''
+    __slots__ = ('tpl_name',)
+
+    def __init__(self, site, cause_site, tpl_name):
+        self.site = site
+        # site of the is statement that yielded this site
+        self.cause_site = cause_site
+        # name of the template this statement was expanded from
+        self.tpl_name = tpl_name
+
+    def describe(self):
+        return f'template {self.tpl_name}'
+
+class InEachSite(ExpandedSite):
+    '''A source code location after `in each` expansion'''
+    __slots__ = ('tpl_names',)
+    def __init__(self, site, in_each_site, tpl_names):
+        self.site = site
+        self.cause_site = in_each_site
+        # names of the templates in the set the 'in each' statement is
+        # targeting
+        self.tpl_names = tpl_names
+
+    def describe(self):
+        return f"'in each ({', '.join(self.tpl_names)})' block"
 
 store_errors = None
 

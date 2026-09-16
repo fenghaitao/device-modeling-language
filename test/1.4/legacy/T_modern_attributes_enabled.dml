@@ -1,0 +1,12 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+device test;
+
+// NOTE: this test relies on proxy attributes
+/// API-VERSION 7
+/// DMLC-FLAG --breaking-change=modern-attributes
+
+import "modern_attributes.dml";

@@ -1,0 +1,8 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+/// API-VERSION 7
+/// WARNING WNOVER T_require_version_statement_disabled.dml
+
+device test;

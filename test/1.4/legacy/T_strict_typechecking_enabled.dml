@@ -1,0 +1,12 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+
+device test;
+
+/// COMPILE-ONLY
+/// DMLC-FLAG --breaking-change=strict-typechecking
+/// SCAN-FOR-TAGS strict_typechecking.dml
+import "strict_typechecking.dml";

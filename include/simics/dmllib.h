@@ -1326,16 +1326,17 @@ typedef struct {
 typedef QUEUE(_dml_immediate_after_queue_elem_t) _dml_immediate_after_queue_t;
 
 typedef struct {
-    // Invariant: nonempty queue implies posted (but not vice versa)
+    // Invariant: if objects_finalized_done then nonempty queue implies
+    // posted (but not vice versa)
     _dml_immediate_after_queue_t queue;
+    // Signifies that a VT_stacked_post:ed _DML_execute_immediate_afters
+    // is in flight.
+    // Invariant: posted implies objects_finalized_done
     bool posted;
     // Invariant: deleted implies posted and freed, empty queue
     bool deleted;
-    // If _DML_pre_delete_cancel_immediate_afters should warn if it cancels any
-    // callbacks. This flag is set when the device object reaches
-    // objects_finalized. If it's deleted before then, then that must be
-    // because of configuration creation failure and rollback.
-    bool warn_upon_deletion;
+    // Gets set once objects_finalized has been completed for the device.
+    bool objects_finalized_done;
 } _dml_immediate_after_state_t;
 
 // Execute all pending immediate afters without relying on VT_stacked_post
@@ -1356,8 +1357,9 @@ UNUSED static void
 _DML_pre_delete_cancel_immediate_afters(conf_object_t *dev,
                                         _dml_immediate_after_state_t *state) {
     if (QEMPTY(state->queue)) return;
-
-    if (state->warn_upon_deletion) {
+    // If the device is deleted before objects_finalized gets to complete, then
+    // that must be because of configuration creation failure and rollback.
+    if (state->objects_finalized_done) {
         _DMLLIB_LOG_WARNING(
             dev, 0,
             "DML device deleted while immediate after callbacks of it are "
@@ -1382,6 +1384,7 @@ _DML_execute_immediate_afters(conf_object_t *dev, lang_void *aux) {
         MM_FREE(state);
         return;
     }
+    // Could happen due to .cancel_after()
     if (unlikely(QEMPTY(state->queue))) {
         state->posted = false;
         return;
@@ -1412,7 +1415,10 @@ _DML_post_immediate_after(
             indices, dimensions, args, args_size, domains, no_domains)
     };
     QADD(state->queue, elem);
-    if (!state->posted) {
+    // By guarding on objects_finalized_done we guarantee any callback posted
+    // before then could only be executed as part of the
+    // _DML_execute_immediate_afters_now call at the end of objects_finalized
+    if (state->objects_finalized_done && !state->posted) {
         state->posted = true;
         VT_stacked_post(dev,
                         _DML_execute_immediate_afters,
@@ -2256,6 +2262,15 @@ __qname(dml_qname_cache_t *cache, const char *fmt, ...)
         return (const char *)s;
 }
 
+UNUSED static void
+_DML_free_qname_cache(dml_qname_cache_t *cache)
+{
+        for (int i = 0; i < 4; i++) {
+                MM_FREE(cache->bufs[i]);
+                cache->bufs[i] = NULL;
+        }
+}
+
 UNUSED static const char *
 __static_qname(_identity_t id, const _id_info_t *id_infos,
                const char *dev_name)
@@ -2766,10 +2781,10 @@ _move_before(conf_object_t *connection,
         _connection_entry_t *connection_entry = VGET(*connections,
                                                      connection_idx);
         VDELETE_ORDER(*connections, connection_idx);
-        if (_connection_idx(before, connections) < 0) {
+        int before_idx = _connection_idx(before, connections);
+        if (before_idx < 0) {
                 VADD(*connections, connection_entry);
         } else {
-                int before_idx = _connection_idx(before, connections);
                 VINSERT(*connections, before_idx, connection_entry);
         }
 
@@ -3434,13 +3449,13 @@ UNUSED static uint64 _select_log_level(ht_int_table_t *ht,
 
 UNUSED static int _free_sub_table(ht_int_table_t *table,
                                   uint64 key, void *val, void *_) {
-        ht_clear_int_table(table, false);
-        return 0;
+        ht_delete_int_table((ht_int_table_t*)val, false);
+        return 1;
 }
 
 UNUSED static void _free_table(ht_int_table_t *table) {
         ht_for_each_entry_int(table, _free_sub_table, NULL);
-        ht_clear_int_table(table, true);
+        ht_delete_int_table(table, true);
 }
 
 UNUSED static void _memoized_recursion(const char *name) {

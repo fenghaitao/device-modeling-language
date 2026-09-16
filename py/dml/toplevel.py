@@ -15,7 +15,7 @@ import pickle
 from ply import lex, yacc
 
 from . import objects, logging, codegen, ctree, ast
-from . import compat
+from . import breaking_changes
 from . import symtab
 from .messages import *
 from .logging import *
@@ -24,9 +24,6 @@ import dml.dmllex
 import dml.dmlparse
 
 __all__ = ('produce_dmlast', 'get_parser', 'parse_main_file')
-
-# Add the current directory to the search path, to find the parsetab module
-sys.path.append('.')
 
 version_warning = True
 supported_versions = [(1, 2), (1, 4)]
@@ -50,7 +47,35 @@ def get_parser(version, tabmodule=None, debugfile=None):
         return parsers[version]
 
     lexer = lex.lex(module = dml.dmlparse.lexers[version],
-                    optimize = 0)#not debug_mode)
+                    optimize = 0,
+                    outputdir = '.')
+    cache_dir = '.'
+    if lex.__version__ != '3.4':
+        # For now we only provide pre-compiled parse tables for PLY 3.4;
+        # for 3.11 we create the parse tables on the fly instead.
+        # The plan is to switch to pre-compiled parse tables for 3.11
+        # when we bump mini-python to PLY 3.11.
+        assert tabmodule is None
+        tabmodule = "_dml%s_parsetab_ply%s" % (
+            ''.join(map(str, version)), lex.__version__.replace('.', ''))
+        cache_dir = os.environ.get('DMLC_PARSE_CACHE_DIR', '.')
+        tabfile = f'{cache_dir}/{tabmodule}.py'
+        if not os.path.isfile(tabfile):
+            # crude good-enough caching: parsetab is typically generated once
+            # per directory. The `move` ensures atomicity in case of two
+            # parallel runs. There is possibly an unlikely race on Windows.
+            import tempfile
+            with tempfile.TemporaryDirectory(dir=cache_dir) as d:
+                yacc.yacc(
+                    module = dml.dmlparse.grammars[version],
+                    tabmodule=tabmodule,
+                    debug=False,
+                    optimize=0,
+                    outputdir=d)
+                import shutil
+                shutil.move(os.path.join(d, tabmodule + '.py'), tabfile)
+        sys.path.append(cache_dir)
+
     parser = yacc.yacc(
         module = dml.dmlparse.grammars[version],
         method='LALR',
@@ -58,7 +83,8 @@ def get_parser(version, tabmodule=None, debugfile=None):
                    or 'dml.dml%s_parsetab' % (''.join(map(str, version)),)),
         debug = debugfile is not None,
         debugfile = debugfile,
-        optimize = 0)#not debug_mode)
+        optimize = 0,
+        outputdir = cache_dir)
 
     parsers[version] = (lexer, parser)
     return (lexer, parser)
@@ -83,7 +109,7 @@ def determine_version(filestr, filename):
         ver_end = m.end(0)
         filestr = ' ' * ver_end + filestr[ver_end:]
     else:
-        if compat.optional_version_statement in dml.globals.enabled_compat:
+        if not breaking_changes.require_version_statement.enabled:
             report(WNOVER(SimpleSite(f"{filename}:1")))
             version = (1, 2)
             lineno = 1
@@ -93,7 +119,7 @@ def determine_version(filestr, filename):
                 SimpleSite(f"{filename}:1"), None,
                 "missing DML version statement")
 
-    if (compat.optional_version_statement in dml.globals.enabled_compat
+    if (not breaking_changes.require_version_statement.enabled
         and version == (1, 3)):
         report(WDEPRECATED(
             SimpleSite(f"{filename}:{lineno}:{column}"),
@@ -120,7 +146,8 @@ def parse(s, file_info, filename, version):
     lexer.file_info = file_info
     lexer.lineno = 1
     try:
-        ast = parser.parse(s, lexer = lexer, tracking = True)
+        ast = parser.parse(s, lexer = lexer, tracking = True,
+                           tokenfunc = dml.dmlparse.mk_get_token(lexer))
     except dml.dmlparse.UnexpectedEOF:
         raise ESYNTAX(DumpableSite(file_info, file_info.size()),
                        None, "unexpected end-of-file")
@@ -148,25 +175,29 @@ def scan_statements(filename, site, stmts):
             [text] = s.args
             footers.append(ctree.mkCText(s.site, text))
         elif s.kind == 'toplevel_if':
-            [cond, tbranch, fbranch] = s.args
+            [cond, tbranch, fbranch, bad_stmts] = s.args
             scope = symtab.Symtab()
             bsite = SimpleSite('<builtin>',
                                dml_version=dml.globals.dml_version)
             # HACK Add constants to scope typically defined by dml-builtins,
             # which is not accessible here
-            def add_constant(name, expr):
+            constants = {
+                'dml_1_2': ctree.BoolConstant(
+                    bsite, dml.globals.dml_version == (1, 2)),
+                'true': ctree.BoolConstant(bsite, True),
+                'false': ctree.BoolConstant(bsite, False),
+            }
+            for (name, expr) in constants.items():
                 scope.add(ctree.ExpressionSymbol(name, expr, bsite))
 
-            add_constant(
-                'dml_1_2',
-                ctree.BoolConstant(bsite, dml.globals.dml_version == (1, 2)))
-            add_constant('true', ctree.BoolConstant(bsite, True))
-            add_constant('false', ctree.BoolConstant(bsite, False))
             try:
                 expr = ctree.as_bool(codegen.codegen_expression(
                     cond, None, scope))
                 if not expr.constant:
                     raise ENCONST(expr.site, expr)
+            except EIDENT:
+                for stmt in bad_stmts:
+                    report(EBADCONDSTMT(stmt.site, stmt.kind))
             except DMLError as e:
                 report(e)
             else:
@@ -213,7 +244,6 @@ def parse_pragmas(filename, filestr):
     return pragmas
 
 def parse_pragma(filename, start_lineno, end_lineno, pragma, data):
-    pragma = pragma.upper()
     data = data and data.strip().replace('\n', ' ').replace('\r', '')
     if pragma == 'COVERITY':
         data = data and pragma_coverity_data_re.match(data)
@@ -368,9 +398,10 @@ def parse_main_file(inputfilename, explicit_import_path):
     dml.globals.dml_version = version
     version_str = fmt_version(version)
     if version != (1, 2):
-        for feature in [compat.dml12_inline, compat.dml12_not,
-                        compat.dml12_misc]:
-            dml.globals.enabled_compat.discard(feature)
+        breaking_changes.BreakingChange.enabled_breaking_changes.update([
+            breaking_changes.dml12_disable_inline_constants,
+            breaking_changes.dml12_not_typecheck,
+            breaking_changes.dml12_remove_misc_quirks])
 
     implicit_imports = [
         ast.import_(site, "dml-builtins.dml")]
@@ -393,7 +424,7 @@ def parse_main_file(inputfilename, explicit_import_path):
 
     # we may want to bump last version to 8 if we want to postpone the
     # deprecation of DML 1.2
-    if version == (1, 2) and dml.globals.api_version > compat.api_7:
+    if version == (1, 2) and dml.globals.api_version > breaking_changes.api_7:
         raise ESIMAPI(site, fmt_version(version), dml.globals.api_version.str)
 
     # Map normalized, absolute path of an imported file, to list of

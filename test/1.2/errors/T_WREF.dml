@@ -1,0 +1,14 @@
+/*
+  © 2021 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.2;
+
+device test;
+
+/// COMPILE-ONLY
+
+/// API-VERSION 5
+// Should be EREF in 6, SIMICS-9886
+/// WARNING WREF
+parameter p = $garbage;

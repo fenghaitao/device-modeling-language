@@ -1,0 +1,72 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+
+dml 1.4;
+
+/// ERROR ENOVERRIDEPARAM
+provisional explicit_param_decls;
+
+device test;
+
+/// ERROR ENOVERRIDEPARAM
+param p0 = 3;
+
+param p1a;
+// no error
+param p1a = 3;
+
+/// ERROR EOVERRIDEPARAM
+param p1b;
+/// ERROR EOVERRIDEPARAM
+param p1b := 3;
+
+param p2a;
+// no error
+param p2a default 3;
+/// ERROR EOVERRIDEPARAM
+param p2b :default 3;
+/// ERROR EOVERRIDEPARAM
+param p2b;
+
+template t {
+    param p3a :default 3;
+    param p3b :default 3;
+    param p4a :default 4;
+    /// ERROR EOVERRIDEPARAM
+    param p4b :default 4;
+    /// ERROR ENOVERRIDEPARAM
+    param p5 default 5;
+    param p6a: int;
+    /// ERROR EOVERRIDEPARAM
+    param p6b: int;
+    param p7a;
+    /// ERROR EOVERRIDEPARAM
+    param p7b;
+    param p8a: int default 6;
+    /// ERROR EOVERRIDEPARAM
+    param p8b: int default 6;
+    param p9: int = 7;
+    param p10 := 10;
+}
+
+group g is t {
+    param p3a = 33;
+    /// ERROR EOVERRIDEPARAM
+    param p3b := 33;
+    param p4a default 44;
+    /// ERROR EOVERRIDEPARAM
+    param p4b :default 44;
+    param p6a = 66;
+    /// ERROR EOVERRIDEPARAM
+    param p6b := 66;
+    param p7a = 77;
+    /// ERROR EOVERRIDEPARAM
+    param p7b := 77;
+    param p8a default 88;
+    /// ERROR EOVERRIDEPARAM
+    param p8b :default 88;
+    // no error
+    param p10;
+}

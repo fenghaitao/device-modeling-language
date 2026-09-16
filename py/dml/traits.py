@@ -8,7 +8,8 @@ import functools
 import contextlib
 import abc
 import os
-from . import objects, logging, crep, codegen, toplevel, topsort, compat
+from . import objects, logging, crep, codegen, toplevel, topsort
+from . import breaking_changes, provisional
 from .logging import *
 from .codegen import *
 from .symtab import *
@@ -40,7 +41,7 @@ def process_trait(site, name, subasts, ancestors, template_symbols):
     hooks = {}
     def check_namecoll(name, site):
         if name in methods:
-            (othersite, _, _, _, _, _, _, _, _, _) = methods[name]
+            (othersite, _, _, _, _, _, _, _, _, _, _) = methods[name]
             raise ENAMECOLL(site, othersite, name)
         if name in params:
             (othersite, _) = params[name]
@@ -56,7 +57,7 @@ def process_trait(site, name, subasts, ancestors, template_symbols):
         try:
             if ast.kind == 'sharedmethod':
                 (mname, inp_asts, outp_asts, throws, qualifiers,
-                 overridable, body, rbrace_site) = ast.args
+                 overridable, explicit_decl, body, rbrace_site) = ast.args
                 independent = 'independent' in qualifiers
                 startup = 'startup' in qualifiers
                 memoized = 'memoized' in qualifiers
@@ -70,8 +71,8 @@ def process_trait(site, name, subasts, ancestors, template_symbols):
                 outp = eval_method_outp(outp_asts, None, global_scope)
                 check_namecoll(mname, ast.site)
                 methods[mname] = (ast.site, inp, outp, throws, independent,
-                                  startup, memoized, overridable, body,
-                                  rbrace_site)
+                                  startup, memoized, overridable,
+                                  explicit_decl, body, rbrace_site)
             elif ast.kind in {'session', 'saved'}:
                 (decls, _) = ast.args
                 for decl_ast in decls:
@@ -97,7 +98,7 @@ def process_trait(site, name, subasts, ancestors, template_symbols):
 
                 msg_types = []
                 for type_ast in type_asts:
-                    (struct_defs, dtype) = eval_type(type_ast, site, None,
+                    (struct_defs, dtype) = eval_type(type_ast, ast.site, None,
                                                      global_scope)
                     add_late_global_struct_defs(struct_defs)
                     # TODO maybe realtype?
@@ -209,11 +210,14 @@ class TraitMethod(TraitVTableItem):
 
     def declaration(self):
         implicit_inargs = self.vtable_trait.implicit_args()
-        args = ", ".join(t.declaration(n)
-                         for (n, t) in c_inargs(
-                                 crep.maybe_dev_arg(self.independent)
-                                 + implicit_inargs + list(self.inp),
-                                 self.outp, self.throws))
+        args = ", ".join([t.declaration(n)
+                          for (n, t) in (
+                                  crep.maybe_dev_arg(self.independent)
+                                  + implicit_inargs)]
+                         + [p.declaration() for p in self.inp]
+                         + [t.declaration(n)
+                            for (n, t) in c_extra_inargs(self.outp,
+                                                         self.throws)])
         return c_rettype(self.outp, self.throws).declaration(
             '%s(%s)' % (self.cname(), args))
 
@@ -254,8 +258,8 @@ class TraitMethod(TraitVTableItem):
             else:
                 memoization = None
             body = codegen_method(
-                self.astbody.site, self.inp, self.outp, self.throws, self.independent,
-                memoization, self.astbody, default,
+                self.astbody.site, self.inp, self.outp, self.throws,
+                self.independent, memoization, self.astbody, default,
                 Location(dml.globals.device, ()), scope, self.rbrace_site)
 
             downcast_path = self.downcast_path()
@@ -322,11 +326,22 @@ def mktrait(site, tname, ancestors, methods, params, sessions, hooks,
         del sessions[name]
 
     bad_methods = set()
-    for (name, (msite, inp, outp, throws, independent, startup, memoized, overridable,
-                body, rbrace_site)) in list(methods.items()):
+    for (name, (msite, inp, outp, throws, independent, startup, memoized,
+                overridable, explicit_decl, body, rbrace_site)
+         ) in list(methods.items()):
+        argnames = set()
+        for p in inp:
+            if p.ident:
+                if p.ident in argnames:
+                    report(EARGD(msite, p.ident))
+                    bad_methods.add(name)
+                argnames.add(p.ident)
+
+        some_coll = False
         for ancestor in direct_parents:
             coll = ancestor.member_declaration(name)
             if coll:
+                some_coll = True
                 (orig_site, orig_trait) = coll
                 if orig_trait.member_kind(name) != 'method':
                     # cannot override non-method with method
@@ -347,13 +362,21 @@ def mktrait(site, tname, ancestors, methods, params, sessions, hooks,
                     report(EDMETH(msite, orig_trait.method_impls[name].site,
                                   name))
                     bad_methods.add(name)
+                elif explicit_decl:
+                    report(EOVERRIDEMETH(msite, orig_site, name,
+                                         'default ' * overridable))
+                    bad_methods.add(name)
                 elif name not in ancestor_vtables:
                     raise ICE(msite,
                               'ancestor is overridable but not in vtable')
-
                 # Type-checking of overrides is done later, after typedefs
                 # have been populated with all template types.
                 # See Trait.typecheck_methods()
+
+        if (body is not None and not some_coll and not explicit_decl
+            and msite.provisional_enabled(provisional.explicit_method_decls)):
+            report(ENOVERRIDEMETH(msite, name, 'default ' * overridable))
+            bad_methods.add(name)
 
     for name in bad_methods:
         del methods[name]
@@ -392,35 +415,31 @@ def typecheck_method_override(left, right):
     if len(outp0) != len(outp1):
         raise EMETH(site0, site1, "different number of output arguments")
     if throws0 != throws1:
-        raise EMETH(site0, site1, "different nothrow annotations")
-    for ((n, t0), (_, t1)) in zip(inp0, inp1):
-        t0 = safe_realtype_unconst(t0)
-        t1 = safe_realtype_unconst(t1)
+        raise EMETH(site0, site1, "different 'throws' annotations")
+    for (p0, p1) in zip(inp0, inp1):
+        t0 = safe_realtype_unconst(p0.typ)
+        t1 = safe_realtype_unconst(p1.typ)
         ok = (t0.eq_fuzzy(t1)
-              if compat.lenient_typechecking in dml.globals.enabled_compat
+              if not breaking_changes.strict_typechecking.enabled
               else t0.eq(t1))
         if not ok:
             raise EMETH(site0, site1,
-                        "mismatching types in input argument %s" % (n,))
+                        f"mismatching types in input argument {p0.logref}")
     for (i, ((_, t0), (_, t1))) in enumerate(zip(outp0, outp1)):
         t0 = safe_realtype_unconst(t0)
         t1 = safe_realtype_unconst(t1)
         ok = (t0.eq_fuzzy(t1)
-              if compat.lenient_typechecking in dml.globals.enabled_compat
+              if not breaking_changes.strict_typechecking.enabled
               else t0.eq(t1))
         if not ok:
             raise EMETH(site0, site1,
                         "mismatching types in output argument %d" % (i + 1,))
 
     def qualifier_check(qualifier_name, qualifier0, qualifier1):
-        if qualifier0 > qualifier1:
+        if qualifier0 != qualifier1:
             raise EMETH(site0, site1,
-                        (f"overriding method is declared {qualifier_name}, "
-                         + "but the overridden method is not"))
-        elif qualifier0 < qualifier1:
-            raise EMETH(site0, site1,
-                        (f"overridden method is declared {qualifier_name}, "
-                         + "but the overriding method is not"))
+                        (f"one declaration is qualified as {qualifier_name}, "
+                         + "but the other is not"))
 
     qualifier_check('independent', independent0, independent1)
     qualifier_check('startup', startup0, startup1)
@@ -493,12 +512,28 @@ def merge_method_impl_maps(site, parents):
     return merged_impls
 
 class MethodHandle(object):
-    def __init__(self, site, name, obj_spec, overridable):
+    def __init__(self, site, name, obj_spec, overridable, abstract,
+                 explicit_decl,
+                 inp, outp, throws, independent, startup, memoized):
         self.site = site
         self.name = name
         self.obj_spec = obj_spec
         self.overridable = overridable
         self.rank = obj_spec.rank
+        self.abstract = abstract
+        self.explicit_decl = explicit_decl
+        self.inp = inp
+        self.outp = outp
+        self.throws = throws
+        self.independent = independent
+        self.startup = startup
+        self.memoized = memoized
+
+    @property
+    def signature(self):
+        '''Used to simplify calls to typecheck_method_override'''
+        return (self.site, self.inp, self.outp, self.throws, self.independent,
+                self.startup, self.memoized)
 
 def get_highest_ranks(ranks):
     '''Given a set of ranks, return the subset of highest unrelated ranks'''
@@ -538,13 +573,10 @@ def sort_method_implementations(implementations):
     ast.method to list of ast.method it overrides, and method_order is
     a topological ordering of methods based on this graph.'''
 
-    rank_to_method = {}
-    for impl in implementations:
-        if impl.rank in rank_to_method:
-            # two conflicting method definitions in the same block
-            raise ENAMECOLL(impl.site, rank_to_method[impl.rank].site,
-                            impl.name)
-        rank_to_method[impl.rank] = impl
+    if not implementations:
+        return ({}, [])
+
+    rank_to_method = { impl.rank: impl for impl in implementations }
 
     minimal_ancestry = calc_minimal_ancestry(frozenset(rank_to_method))
 
@@ -701,7 +733,7 @@ class Trait(SubTrait):
                 overridable, body, self, name,
                 ancestor_method_impls.get(name, []), rbrace_site)
             for (name, (msite, inp, outp, throws, independent, startup,
-                        memoized, overridable, body, rbrace_site))
+                        memoized, overridable, _, body, rbrace_site))
             in list(methods.items())
             if body is not None}
 
@@ -723,8 +755,8 @@ class Trait(SubTrait):
         # methods and parameters that are direct members of this trait's vtable
         self.vtable_methods = {
             name: (msite, inp, outp, throws, independent, startup, memoized)
-            for (name, (msite, inp, outp, throws, independent, startup, memoized,
-                        overridable, _, _))
+            for (name, (msite, inp, outp, throws, independent, startup,
+                        memoized, overridable, _, _, _))
             in list(methods.items())
             if overridable and name not in ancestor_vtables}
         self.vtable_params = params
@@ -752,9 +784,31 @@ class Trait(SubTrait):
     def type(self):
         return TTrait(self)
 
+    def typecheck_members(self):
+        self.typecheck_methods()
+        for table in (self.vtable_params, self.vtable_sessions,
+                      self.vtable_hooks):
+            bad_members = []
+            for (name, (_, typ)) in table.items():
+                try:
+                    check_named_types(typ)
+                except DMLError as e:
+                    report(e)
+                    bad_members.append(name)
+
+            for name in bad_members:
+                # Unlike shared methods, we can sanely purge bad params,
+                # session/saveds and hooks, because they don't have the same
+                # kind of complex interdependencies that methods have; they are
+                # just made part of the vtable. This will eventually *not* be
+                # the case for hooks, as hooks will eventually become compound
+                # objects, and shared compound objects (once implemented) will
+                # also have complex interdependencies
+                del table[name]
+
     def typecheck_methods(self):
         for (_, inp, outp, _, _, _, _) in self.vtable_methods.values():
-            for (_, t) in inp + outp:
+            for t in [p.typ for p in inp] + [t for (_, t) in outp]:
                 try:
                     check_named_types(t)
                 except DMLError as e:
@@ -764,7 +818,7 @@ class Trait(SubTrait):
             # To avoid duplicating error messages
             bad = False
             if sm.name not in self.vtable_methods:
-                for (_, t) in sm.inp + sm.outp:
+                for t in [p.typ for p in sm.inp] + [t for (_, t) in sm.outp]:
                     try:
                         check_named_types(t)
                     except DMLError as e:
@@ -911,9 +965,10 @@ class Trait(SubTrait):
 
     def vtable_method_type(self, inp, outp, throws, independent):
         return TPtr(TFunction(
-            [t for (n, t) in c_inargs(
-                crep.maybe_dev_arg(independent) + self.implicit_args() + inp,
-                outp, throws)],
+            [t for (_, t) in
+             crep.maybe_dev_arg(independent) + self.implicit_args()]
+            + [p.typ for p in inp]
+            + [t for (_, t) in c_extra_inargs(outp, throws)],
             c_rettype(outp, throws)))
 
     def mark_referenced(self):

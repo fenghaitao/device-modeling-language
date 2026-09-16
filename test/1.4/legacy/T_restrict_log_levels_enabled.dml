@@ -1,0 +1,13 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+
+device test;
+
+/// COMPILE-ONLY
+/// DMLC-FLAG --breaking-change=restrict-log-levels
+/// WARNING WREDUNDANTLEVEL restrict_log_levels.dml
+/// SCAN-FOR-TAGS restrict_log_levels.dml
+import "restrict_log_levels.dml";

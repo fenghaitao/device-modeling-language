@@ -76,7 +76,7 @@ def traverse_ast(ast):
         for stmt in stmts:
             yield from traverse_ast(stmt)
     elif ast.kind == 'object':
-        (_, _, _, stmts) = ast.args
+        (_, _, _, _, stmts) = ast.args
         for stmt in stmts:
             yield from traverse_ast(stmt)
     elif ast.kind == 'method':
@@ -87,18 +87,21 @@ def traverse_ast(ast):
         for (_, _, _, typ) in inp:
             if typ is None:
                 ignored = True
-        assert body.kind == 'compound'
-        if any(stmt.kind == 'error' for stmt in body.args[0]):
-            # poisoned method, apparently meant to be dead
-            ignored = True
-        yield (ast.site.lineno, ast.args[4].lineno, ast.args[0], ignored)
-    elif ast.kind == 'sharedmethod':
-        body = ast.args[6]
         if body is None:
             # abstract method, no code generated
             return
         assert body.kind == 'compound'
-        yield (ast.site.lineno, ast.args[7].lineno, ast.args[0], False)
+        if any(stmt.kind == 'error' for stmt in body.args[0]):
+            # poisoned method, apparently meant to be dead
+            ignored = True
+        yield (ast.site.lineno, ast.args[5].lineno, ast.args[0], ignored)
+    elif ast.kind == 'sharedmethod':
+        body = ast.args[7]
+        if body is None:
+            # abstract method, no code generated
+            return
+        assert body.kind == 'compound'
+        yield (ast.site.lineno, ast.args[8].lineno, ast.args[0], False)
     elif ast.kind in {'toplevel_if', 'hashif'}:
         (_, t, f) = ast.args
         for block in [t, f]:
@@ -113,10 +116,11 @@ def traverse_ast(ast):
 def method_locations(path):
     from dml.toplevel import parse_file, determine_version
     from dml import logging, messages
-    import dml.globals
-    from dml import compat
+    from dml import breaking_changes
     # needed to parse 1.2/utility.dml
-    dml.globals.enabled_compat.add(compat.warning_statement)
+    breaking_changes.BreakingChange.enabled_breaking_changes = (
+        set(breaking_changes.changes.values())
+        - {breaking_changes.forbid_warning_statement})
     for warning in messages.warnings:
         logging.ignore_warning(warning)
 

@@ -245,3 +245,42 @@
   Warning statements will be illegal when Simics API 8 or newer is used.
 - `release 7 7095`
 - `release 6 6405`
+- `note 6` Added a new flag `--breaking-change` which replaces the
+  `--no-compat` flag. This flag is easier to understand, and aligns better with
+  terminology used by Simics. Existing `--no-compat` flags continue to work
+  like before.
+- `release 7 7134`
+- `release 6 6449`
+- `note 6` DMLC no longer emits warnings saying
+  `top-level '#if' body with unsupported statements`. These warnings were
+  often triggered in common code, causing excessive polution in build logs unless `--no-warn=WEXPERIMENTAL` was passed to DMLC.
+  The same rules as before apply to `#if` statements: Statements such as
+  `param` and `template` are forbidden inside `#if`, but a special exception
+  allows forbidden statements to appear specifically inside an `#if (dml_1_2)`
+  block. The warning message was meant to highlight this irregularity, but
+  caused more harm than good; error messages surrounding the special case have been improved instead.
+- `release 7 7146`
+- `release 6 6457`
+- `note 6` Addressed an issue stemming from an upstream bug that would commonly
+  cause the reported column number in warning and error messages to be
+  incorrect (fixes SIMICS-23466). This issue also affected the reported line
+  number in rare situations.
+
+  This issue had always been present in DML, and most notably affected error
+  messages surrounding methods, as well as object declarations since
+  Simics Base version 7.78.
+- `release 7 7150`
+- `release 6 6460`
+- `note 6` DMLC now detects and warns about any standalone `is` that looks
+  like it was instead intended for an object declared immediately before it,
+  such as the following:
+  ```
+  // Stray semicolons cause each 'is' to be standalone, affecting the
+  // containing register rather than the fields
+  field f1 @ [15:0]; is read_only;
+
+  field f2 @ [31:16];
+      is write_only;
+  ```
+- `release 7 7152`
+- `release 6 6461`

@@ -1,0 +1,11 @@
+/*
+  © 2024 Intel Corporation
+  SPDX-License-Identifier: MPL-2.0
+*/
+dml 1.4;
+
+device test;
+
+/// API-VERSION 7
+/// WARNING WREDUNDANTLEVEL restrict_log_levels.dml
+import "restrict_log_levels.dml";

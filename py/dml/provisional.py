@@ -84,6 +84,49 @@ class explicit_param_decls(ProvisionalFeature):
     short = "Require := syntax for defining new params"
     stable = True
 
+@feature
+class explicit_method_decls(ProvisionalFeature):
+    '''
+    This feature extends the DML syntax for methods to distinguish between an
+    intent to declare a new method, and an intent to override an existing
+    method/provide a definition for an abstract method.
+    This distinction allows DML to capture misspelled parameter overrides as
+    compile errors.
+
+    The following new forms are introduced to mark the intent of declaring
+    and defining a new method:
+    ```
+    [shared] method m(...) [-> (...)] [throws] :{ ... }
+    [shared] method m(...) [-> (...)] [throws] :default { ... }
+    ```
+
+    DMLC rejects a declaration of any of these forms if the method has already
+    been declared, because these forms signify that the declaration was not
+    intended as an override.
+
+    `explicit_metod_decls` also changes the meaning of the traditional form
+    of method definitions (e.g. `method m() {}` or `method m() default {}`)
+    such that DMLC will reject them if the method has not been declared
+    previously (either abstractly or with an overridable definition.)
+
+    In some rare cases, you may need to declare a method without
+    knowing if it's an override or a new declaration. In this case, one
+    can accompany an overriding definition (e.g. `method m() {}`
+    or `method() default {}`) with an abstract method declaration (e.g.
+    `method m();`) in the same scope/rank. This marks that the method
+    definition may either be for a previously declared method or a new method
+    entirely, and no error will be printed. Note that this pattern can only
+    be employed for non-`shared` method definitions, as abstract `shared`
+    declarations have unique meaning and restrictions placed on them.
+
+    Enabling the `explicit_method_decls` feature in a file only affects
+    the method definitions specified in that file; in other words, it will not
+    require other files to use the `:{` syntax in order to declare novel
+    methods.
+    '''
+    short = "Require :{ ... } syntax for defining new methods"
+    stable = False
+
 
 @feature
 class simics_util_vect(ProvisionalFeature):
@@ -128,12 +171,41 @@ class simics_util_vect(ProvisionalFeature):
     the `vect` declarations in that file.
 
     When the `simics_util_vect` feature is disabled, usage of `vect` is an
-    error unless the [`experimental_vect` compatibility
-    feature](deprecations-auto.html#experimental_vect) is enabled.
+    error if the [`vect-needs-provisional`
+    breaking change](deprecations-auto.html#vect-needs-provisional) is enabled.
     '''
     short = "Allow vect syntax based on the VECT macro"
     stable = True
     dml12 = True
+
+
+@feature
+class explicit_object_extensions(ProvisionalFeature):
+    '''<a id="explicit_object_extensions"/>
+
+    This feature extends the DML syntax for object declarations to distinguish
+    between an intent to introduce a new object to the model structure, and an
+    intent to extend the definition of an existing object.
+
+    The following form is introduced to mark the intent to extend an object:
+    <pre>
+    in <em>object-type</em> <em>name</em> <em>...</em> { <em>...</em> }
+    </pre>
+    E.g.
+    <pre>
+    in bank some_bank { ... }
+    </pre>
+
+    If this form is used while there is no other non-extension declaration of
+    the named object, then DMLC will signal an error because the definition
+    was not intended to introduce the object to the model structure.
+
+    DMLC will also signal an error if there is more than one non-extension
+    declaration of the object among the files enabling
+    `explicit_object_extensions`.
+    '''
+    short = "Require `in` syntax for additional declarations of an object"
+    stable = False
 
 def parse_provisional(
         provs: list[("Site", str)]) -> dict[ProvisionalFeature, "Site"]:
